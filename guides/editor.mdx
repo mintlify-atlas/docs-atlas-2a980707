@@ -1,0 +1,122 @@
+---
+title: "Running the backtest-kit Editor with UZSE Candles"
+sidebarTitle: "Editor"
+description: "Connect MongoDB candle data to the backtest-kit visual editor and apply Pine Script technical analysis indicators to UZSE stock data."
+---
+
+The backtest-kit editor is a visual charting environment that lets you load candlestick data from any registered exchange adapter and apply Pine Script indicators in real time. For UZSE data, the project registers a `"mongo-exchange"` adapter that reads directly from your local MongoDB `candle-items` collection — meaning the same OHLCV records built by `build-candles.ts` are immediately available in the editor UI.
+
+## Prerequisites
+
+Before launching the editor, make sure the following are in place:
+
+<Steps>
+  <Step title="MongoDB is running">
+    The editor reads from MongoDB using the `MONGO_URI` environment variable (default: `mongodb://localhost:27017/backtest`). Ensure your MongoDB instance is accessible and the database exists.
+  </Step>
+  <Step title="candle-items collection is populated">
+    The `candle-items` collection must contain built OHLCV candles. Run `build-candles.ts` first to populate it from raw trade records. If the collection is empty, the editor will load with no chart data.
+  </Step>
+  <Step title="Dependencies are installed">
+    Run `npm install` in the project root to ensure `@backtest-kit/cli` and all peer packages are present in `node_modules`.
+  </Step>
+</Steps>
+
+## Starting the Editor
+
+Launch the editor with a single command from the project root:
+
+```bash
+npm start
+```
+
+This executes the `start` script defined in `package.json`:
+
+```json
+{
+  "scripts": {
+    "start": "node ./node_modules/@backtest-kit/cli/build/index.mjs --editor"
+  }
+}
+```
+
+The `--editor` flag tells the CLI to open the visual editor interface instead of running a headless backtest. Once started, the editor is accessible in your browser at the URL printed in the terminal output.
+
+## How the Exchange Adapter Works
+
+The file `modules/editor.module.ts` registers a custom exchange adapter named `"mongo-exchange"` using the `addExchangeSchema` function from the `backtest-kit` package. This adapter is what the editor calls whenever it needs to fetch candles for a given symbol and interval.
+
+```typescript
+import { addExchangeSchema } from "backtest-kit";
+import { CandleModel } from "../schema/Candle.schema";
+import "../config/setup";
+
+addExchangeSchema({
+  exchangeName: "mongo-exchange",
+  getCandles: async (symbol, interval, since, limit) => {
+    const candles = await CandleModel.find(
+      { symbol, interval, timestamp: { $gte: since.getTime() } },
+      { timestamp: 1, open: 1, high: 1, low: 1, close: 1, volume: 1, _id: 0 }
+    )
+      .sort({ timestamp: 1 })
+      .limit(limit)
+      .lean();
+
+    return candles.map(({ timestamp, open, high, low, close, volume }) => ({
+      timestamp,
+      open,
+      high,
+      low,
+      close,
+      volume,
+    }));
+  },
+});
+```
+
+When the editor requests candles, `getCandles` queries the `CandleModel` (the `candle-items` MongoDB collection) with four constraints:
+
+- **`symbol`** — the ticker selected in the editor UI
+- **`interval`** — the timeframe selected (e.g. `"1d"`, `"1h"`)
+- **`since`** — filters to candles with `timestamp >= since.getTime()`, scoping the result to the visible date range
+- **`limit`** — caps the number of returned records to match the editor's viewport
+
+Results are sorted ascending by `timestamp` and projected to only the six OHLCV fields — no Mongoose metadata is passed to the editor.
+
+## Supported Intervals
+
+The `candle-items` schema enforces the following interval values, all of which are selectable in the editor:
+
+| Interval | Description     |
+|----------|-----------------|
+| `1m`     | 1 minute        |
+| `3m`     | 3 minutes       |
+| `5m`     | 5 minutes       |
+| `15m`    | 15 minutes      |
+| `30m`    | 30 minutes      |
+| `1h`     | 1 hour          |
+| `2h`     | 2 hours         |
+| `4h`     | 4 hours         |
+| `6h`     | 6 hours         |
+| `8h`     | 8 hours         |
+| `1d`     | 1 day           |
+
+<Note>
+  UZSE is a single-session exchange with a 6-hour trading day. Sub-hour intervals will be sparse for most symbols — intraday granularity depends on how frequently trades were executed on a given day. For most analytical work, `1d` is the most complete and reliable interval.
+</Note>
+
+## MongoDB Connection
+
+The editor connects to MongoDB through the `MONGO_URI` environment variable loaded by `config/setup`. If the variable is not set, the default connection string is:
+
+```
+mongodb://localhost:27017/backtest
+```
+
+To use a different host, database name, or authentication credentials, set `MONGO_URI` in your `.env` file before running `npm start`.
+
+<CardGroup cols={1}>
+  <Card title="Applying Pine Script Indicators" icon="chart-line" href="/guides/pine-script">
+    Learn how to write and visualize Pine Script v6 indicators on your UZSE candle data inside the editor.
+  </Card>
+</CardGroup>

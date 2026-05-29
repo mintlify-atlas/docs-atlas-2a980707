@@ -1,0 +1,130 @@
+---
+title: "Exchange Module — Connecting MongoDB to backtest-kit"
+sidebarTitle: "Exchange Module"
+description: "Reference for the addExchangeSchema adapter that registers MongoDB candle data as a backtest-kit exchange source, enabling Pine Script analysis on UZSE data."
+---
+
+The exchange module bridges the MongoDB candle storage layer and the `backtest-kit` framework by registering a custom exchange adapter named `"mongo-exchange"`. Once registered, `backtest-kit` can query UZSE candlestick data stored in the `candle-items` collection using the same interface it would use against any live exchange — enabling Pine Script strategy backtesting and chart analysis entirely from local data without external API calls.
+
+## `addExchangeSchema`
+
+`addExchangeSchema` is the `backtest-kit` registration function that binds a named exchange to a user-supplied candle-fetching callback. The UZSE app calls it once at module load time with the `"mongo-exchange"` name and a MongoDB-backed implementation.
+
+```typescript
+addExchangeSchema({
+  exchangeName: string;
+  getCandles: (
+    symbol: string,
+    interval: string,
+    since: Date,
+    limit: number
+  ) => Promise<OHLCV[]>;
+})
+```
+
+**Imported from:** `backtest-kit`
+
+### Parameters
+
+<ParamField path="exchangeName" type="string" required>
+  Unique name used to identify this exchange within `backtest-kit`. All three module entry points register under `"mongo-exchange"`.
+</ParamField>
+
+<ParamField path="getCandles" type="function" required>
+  Async callback invoked by `backtest-kit` whenever it needs candle data. Receives the four arguments below and must return a `Promise` that resolves to an array of OHLCV objects.
+</ParamField>
+
+### `getCandles` Arguments
+
+<ParamField path="symbol" type="string" required>
+  Ticker symbol matching documents in `candle-items`, e.g. `"HMKB"`. Passed directly as the `symbol` field in the MongoDB query filter.
+</ParamField>
+
+<ParamField path="interval" type="string" required>
+  One of the eleven supported timeframes (`"1m"` … `"1d"`). Passed directly as the `interval` field in the MongoDB query filter.
+</ParamField>
+
+<ParamField path="since" type="Date" required>
+  Only candles with `timestamp >= since.getTime()` are returned. Converted to a millisecond integer via `.getTime()` before being used in the `$gte` query operator.
+</ParamField>
+
+<ParamField path="limit" type="number" required>
+  Maximum number of candle documents to return. Applied via Mongoose's `.limit()` after sorting by `timestamp` ascending.
+</ParamField>
+
+## MongoDB Adapter Implementation
+
+The following is the exact implementation shared by all three module entry points (`editor.module.ts`, `dump.module.ts`, `pine.module.ts`):
+
+```typescript
+import { addExchangeSchema } from "backtest-kit";
+import { CandleModel } from "../schema/Candle.schema";
+import "../config/setup";
+
+addExchangeSchema({
+  exchangeName: "mongo-exchange",
+  getCandles: async (symbol, interval, since, limit) => {
+    const candles = await CandleModel.find(
+      { symbol, interval, timestamp: { $gte: since.getTime() } },
+      { timestamp: 1, open: 1, high: 1, low: 1, close: 1, volume: 1, _id: 0 }
+    )
+      .sort({ timestamp: 1 })
+      .limit(limit)
+      .lean();
+
+    return candles.map(({ timestamp, open, high, low, close, volume }) => ({
+      timestamp,
+      open,
+      high,
+      low,
+      close,
+      volume,
+    }));
+  },
+});
+```
+
+The projection `{ timestamp: 1, open: 1, high: 1, low: 1, close: 1, volume: 1, _id: 0 }` ensures that only the OHLCV fields are transferred from MongoDB — Mongoose metadata, `symbol`, `interval`, and the auto-timestamp fields are excluded from the returned objects.
+
+## Return Type
+
+Each element of the returned array has the following shape:
+
+```typescript
+{
+  timestamp: number; // Unix milliseconds — start of the candle period
+  open: number;      // Opening price in UZS
+  high: number;      // Highest price in UZS
+  low: number;       // Lowest price in UZS
+  close: number;     // Closing price in UZS
+  volume: number;    // Units traded (0 for gap-filled candles)
+}
+```
+
+## Module Entry Points
+
+All three module files contain identical `addExchangeSchema` registrations. They serve as entry points for different `backtest-kit` execution contexts:
+
+| File                 | Context                                    |
+| -------------------- | ------------------------------------------ |
+| `editor.module.ts`   | Interactive chart editor (`npm start`)     |
+| `dump.module.ts`     | Data dump / export pipeline                |
+| `pine.module.ts`     | Pine Script strategy execution             |
+
+<Info>
+  Each file imports `"../config/setup"` as a side-effect, which initialises the Mongoose connection before `CandleModel` is used. The `setup` module reads `MONGO_URI` from the environment; if unset it defaults to `mongodb://localhost:27017/backtest`.
+</Info>
+
+## How It Is Loaded
+
+The editor registers the module automatically when the application is started:
+
+```bash
+npm start
+```
+
+For Pine Script and dump contexts the respective module file is passed as the entry point to `backtest-kit`'s runner. The adapter must be registered before any `backtest-kit` function that requests candle data is called.
+
+<Note>
+  Ensure `MONGO_URI` is set in your environment (or `.env` file) **before** importing any of the three module files. The `setup` side-effect import runs synchronously at module load time, so the connection is established as part of the import chain.
+</Note>

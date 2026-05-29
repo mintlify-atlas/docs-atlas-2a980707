@@ -1,0 +1,126 @@
+---
+title: "Candle Schema — candle-items MongoDB Collection"
+sidebarTitle: "Candle Schema"
+description: "Mongoose schema and TypeScript interface for OHLCV candlestick records in the candle-items collection, including supported timeframe intervals and the unique composite index."
+---
+
+`CandleModel` is the Mongoose model that stores pre-aggregated OHLCV (Open / High / Low / Close / Volume) candlestick records in the `candle-items` collection of the `backtest` database. Documents are produced by the `build-candles.ts` script, which reads raw trade data from `trade-results` and materialises continuous candle series for all eleven supported timeframes simultaneously. A unique compound index on `{ symbol, interval, timestamp }` makes every write idempotent — re-running the build script never corrupts existing data.
+
+## Collection Details
+
+| Property        | Value                                                   |
+| --------------- | ------------------------------------------------------- |
+| **Collection**  | `candle-items`                                          |
+| **Database**    | `backtest`                                              |
+| **Timestamps**  | `createDate`, `updatedDate` (auto-managed by Mongoose)  |
+
+## TypeScript Interface
+
+```typescript
+interface ICandleDto {
+  symbol: string;           // Display ticker, e.g. "HMKB"
+  interval: CandleInterval; // One of the 11 supported timeframes
+  timestamp: number;        // Unix timestamp in milliseconds (start of candle period)
+  open: number;             // Opening price
+  high: number;             // Highest price in period
+  low: number;              // Lowest price in period
+  close: number;            // Closing price
+  volume: number;           // Total units traded in period
+}
+```
+
+`ICandleRow` extends `ICandleDto` with the document's `id` string and the Mongoose timestamp fields `createDate` and `updatedDate`.
+
+## Supported Intervals
+
+The `interval` field is validated against the `INTERVAL_ENUM` constant defined in the schema. Only the following values are accepted:
+
+| Value  | Duration     |
+| ------ | ------------ |
+| `"1m"` | 1 minute     |
+| `"3m"` | 3 minutes    |
+| `"5m"` | 5 minutes    |
+| `"15m"`| 15 minutes   |
+| `"30m"`| 30 minutes   |
+| `"1h"` | 1 hour       |
+| `"2h"` | 2 hours      |
+| `"4h"` | 4 hours      |
+| `"6h"` | 6 hours      |
+| `"8h"` | 8 hours      |
+| `"1d"` | 1 day        |
+
+<Note>
+  The `CandleInterval` type is imported from `backtest-kit` and must match this enum. Inserting a document with any other interval string will fail Mongoose validation before reaching MongoDB.
+</Note>
+
+## Field Reference
+
+<ResponseField name="symbol" type="string" required>
+  Short display ticker for the security, e.g. `"HMKB"`. This is the human-readable symbol passed on the CLI when `build-candles.ts` is invoked — not the ISIN code stored in `trade-results`. Carries a single-field index.
+</ResponseField>
+
+<ResponseField name="interval" type="CandleInterval" required>
+  Timeframe of the candle. Must be one of the eleven values in `INTERVAL_ENUM`. Validated by Mongoose at write time and carries a single-field index to support per-timeframe queries.
+</ResponseField>
+
+<ResponseField name="timestamp" type="number" required>
+  Unix epoch timestamp **in milliseconds** marking the **start** of the candle's time period. For example, a `1h` candle that covers 10:00–10:59 UTC has `timestamp = 1743084000000`. Carries a single-field index and participates in the unique compound index.
+</ResponseField>
+
+<ResponseField name="open" type="number" required>
+  Price of the first trade that falls within the candle's time window, in UZS.
+</ResponseField>
+
+<ResponseField name="high" type="number" required>
+  Highest trade price recorded during the candle's time window, in UZS.
+</ResponseField>
+
+<ResponseField name="low" type="number" required>
+  Lowest trade price recorded during the candle's time window, in UZS.
+</ResponseField>
+
+<ResponseField name="close" type="number" required>
+  Price of the last trade that falls within the candle's time window, in UZS. For gap-filled (zero-volume) candles this equals the `close` of the previous real candle.
+</ResponseField>
+
+<ResponseField name="volume" type="number" required>
+  Total number of units (shares or bonds) traded during the candle's time window. Gap-filled candles have `volume = 0`.
+</ResponseField>
+
+## Indexes
+
+| Index                              | Type            | Purpose                                               |
+| ---------------------------------- | --------------- | ----------------------------------------------------- |
+| `symbol`                           | Single          | Filter candles by ticker                              |
+| `interval`                         | Single          | Filter candles by timeframe                           |
+| `timestamp`                        | Single          | Range queries over time                               |
+| `{ symbol, interval, timestamp }`  | Unique Compound | Prevents duplicate candles; enables exact lookups     |
+
+The unique compound index is the primary deduplication guard. When `build-candles.ts` calls `insertMany` with `ordered: false`, any candle that already exists in the collection triggers a duplicate-key error (code `11000`) which the script catches and counts as "skipped" rather than treating as a fatal error.
+
+## Import
+
+```typescript
+import { CandleModel, ICandleDto, ICandleRow } from "../schema/Candle.schema";
+```
+
+## Example Document
+
+```json
+{
+  "symbol": "HMKB",
+  "interval": "1h",
+  "timestamp": 1743084000000,
+  "open": 4200,
+  "high": 4300,
+  "low": 4150,
+  "close": 4250,
+  "volume": 500,
+  "createDate": "2026-04-18T08:00:00.000Z",
+  "updatedDate": "2026-04-18T08:00:00.000Z"
+}
+```
+
+<Tip>
+  `timestamp` is stored in **milliseconds**. To convert to a JavaScript `Date`, use `new Date(timestamp)`. To get a Unix second-precision timestamp, divide by `1000`: `Math.floor(timestamp / 1000)`.
+</Tip>

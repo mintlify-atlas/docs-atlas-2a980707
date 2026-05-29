@@ -1,0 +1,87 @@
+---
+title: "Setting Up MongoDB for UZSE Trade Storage"
+sidebarTitle: "MongoDB"
+description: "Configure MongoDB to store UZSE trade records and OHLCV candlestick data. Run locally via Docker Compose or connect to a remote instance with MONGO_URI."
+---
+
+MongoDB is the primary data store for the UZSE Backtest App, holding both the raw trades scraped from `uzse.uz` and the OHLCV candlestick series built from them. Every script in the pipeline reads from or writes to a MongoDB database named `backtest`, making a running MongoDB instance a hard requirement before executing any data collection or candle-building commands.
+
+## Collections
+
+The app works with two collections inside the `backtest` database:
+
+<CardGroup cols={2}>
+  <Card title="trade-results" icon="table">
+    Raw UZSE trade records imported from HTML pages via `scripts/import-trades.ts`. Each document represents a single executed trade with ticker, volume, price, and timestamp.
+  </Card>
+  <Card title="candle-items" icon="chart-candlestick">
+    OHLCV candles built by `build-candles.ts` from the raw trades in `trade-results`. These are the series consumed by backtest-kit indicators and Pine Script strategies.
+  </Card>
+</CardGroup>
+
+## Running MongoDB with Docker
+
+The repository ships a ready-to-use Docker Compose file at `docker/mongo/docker-compose.yaml`. It runs MongoDB Community Server 8.0.4 and persists data to a local volume so the database survives container restarts.
+
+```yaml docker/mongo/docker-compose.yaml
+version: '3.8'
+services:
+  mongodb:
+    image: mongodb/mongodb-community-server:8.0.4-ubi8
+    container_name: node-ollama-agent-swarm-mongo-server
+    ports:
+      - '27017:27017'
+    volumes:
+      - ./mongo_data:/data/db
+    restart: always
+volumes:
+  mongo_data:
+```
+
+Start the container in detached mode:
+
+```bash
+cd docker/mongo
+docker compose up -d
+```
+
+<Tip>
+  Data is persisted in `docker/mongo/mongo_data/` on your host machine. Stopping or removing the container does **not** delete your trade records or candles — the volume remains intact until you delete that directory manually.
+</Tip>
+
+## Connecting the App
+
+Connection logic lives in `config/setup.ts`. The file reads the `MONGO_URI` environment variable and falls back to a local default when the variable is not set:
+
+```typescript config/setup.ts
+import mongoose from "mongoose";
+
+const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/backtest";
+
+mongoose.connect(MONGO_URI);
+```
+
+This file is imported at the top of every script that touches the database, so the connection is established automatically — no extra bootstrap step is needed.
+
+## Using a Remote MongoDB Instance
+
+To point the app at a hosted or remote MongoDB, set `MONGO_URI` before running any script:
+
+```bash
+MONGO_URI=mongodb://user:password@host:27017/backtest npx tsx scripts/import-trades.ts
+```
+
+The same variable works for all pipeline scripts (`import-trades.ts`, `build-candles.ts`, etc.) because they all import `config/setup.ts`.
+
+## Bulk Import from JSON Dumps
+
+If you already have exported data from a previous run, you can restore both collections directly with `mongoimport` instead of re-running the scraper:
+
+```bash
+mongoimport --db backtest --collection trade-results --file backtest.trade-results.json --jsonArray
+mongoimport --db backtest --collection candle-items --file backtest.candle-items.json --jsonArray
+```
+
+<Note>
+  The `--jsonArray` flag is required because dump files contain a top-level JSON array. Omitting it will cause `mongoimport` to reject the file.
+</Note>

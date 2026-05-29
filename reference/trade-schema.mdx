@@ -1,0 +1,136 @@
+---
+title: "Trade Schema — trade-results MongoDB Collection"
+sidebarTitle: "Trade Schema"
+description: "Mongoose schema and TypeScript interface for UZSE trade records in the trade-results collection, including field types, indexes, and the SHA1 deduplication hash."
+---
+
+`TradeModel` is the Mongoose model that stores every raw trade record fetched from the UZSE exchange API. Each document represents a single executed transaction and is persisted in the `trade-results` collection of the `backtest` database. The schema is designed for idempotent imports: a SHA1 `hash` field carries a fingerprint of the trade's key attributes, and a unique index on that field prevents duplicate records from being written no matter how many times the same data is collected.
+
+## Collection Details
+
+| Property        | Value                        |
+| --------------- | ---------------------------- |
+| **Collection**  | `trade-results`              |
+| **Database**    | `backtest`                   |
+| **Timestamps**  | `createDate`, `updatedDate` (auto-managed by Mongoose) |
+
+## TypeScript Interface
+
+The `ITradeDto` interface describes the shape of a trade document as it is inserted and queried. Comments are preserved from the original source and reflect the Russian-language UZSE API field descriptions.
+
+```typescript
+interface ITradeDto {
+  /** Дата и время сделки, напр. "17 апреля 2026, 16:02" */
+  time: Date;
+  /** ISIN код ценной бумаги, напр. "UZ7011340005" */
+  symbol: string;
+  /** Наименование эмитента, напр. "<Hamkorbank> ATB" */
+  issuer: string;
+  /** Тип ценной бумаги, напр. "Простые акции", "Привилегированные акции" */
+  securityType: string;
+  /** Рынок (сектор торгов), напр. "STK" (акции), "BON" (облигации) */
+  market: string;
+  /** Торговая площадка (сессия), напр. "G1", "G2" */
+  platform: string;
+  /** Цена одной ценной бумаги в сделке */
+  tradePrice: number;
+  /** Количество ценных бумаг в сделке */
+  quantity: number;
+  /** Объём сделки в UZS (tradePrice * quantity) */
+  volume: number;
+  /** SHA1 от symbol|time|tradePrice|quantity|volume|pageIndex|rowIndex|query_begin|query_end|query_search_key */
+  hash: string;
+}
+```
+
+`ITradeRow` extends `ITradeDto` with the document's `id` string and the Mongoose timestamp fields `createDate` and `updatedDate`.
+
+## Field Reference
+
+<ResponseField name="time" type="Date" required>
+  Transaction datetime parsed from the UZSE API response, e.g. `"17 апреля 2026, 16:02"`. Stored as a native BSON Date in UTC. Carries a single-field index to support range queries over time windows.
+</ResponseField>
+
+<ResponseField name="symbol" type="string" required>
+  ISIN code of the security, e.g. `"UZ7011340005"`. Indexed individually and as part of the compound `{ symbol, time }` index. Note that `symbol` in `trade-results` holds the ISIN, while the `candle-items` collection stores the shorter display ticker.
+</ResponseField>
+
+<ResponseField name="issuer" type="string" required>
+  Human-readable name of the security issuer as returned by the UZSE API, e.g. `"<Hamkorbank> ATB"`.
+</ResponseField>
+
+<ResponseField name="securityType" type="string" required>
+  Category of the security. Common values include `"Простые акции"` (ordinary shares) and `"Привилегированные акции"` (preferred shares).
+</ResponseField>
+
+<ResponseField name="market" type="string" required>
+  Trading sector code. `"STK"` denotes the equities market; `"BON"` denotes the bond market.
+</ResponseField>
+
+<ResponseField name="platform" type="string" required>
+  Trading session identifier, e.g. `"G1"` or `"G2"`, as assigned by the UZSE.
+</ResponseField>
+
+<ResponseField name="tradePrice" type="number" required>
+  Price per unit of the security at the time of the trade, denominated in Uzbekistani som (UZS).
+</ResponseField>
+
+<ResponseField name="quantity" type="number" required>
+  Number of individual securities (units) exchanged in this trade.
+</ResponseField>
+
+<ResponseField name="volume" type="number" required>
+  Total monetary value of the trade in UZS, equal to `tradePrice × quantity`.
+</ResponseField>
+
+<ResponseField name="hash" type="string" required>
+  SHA1 deduplication key. Carries a **unique** index — any attempt to insert a document with an existing `hash` is rejected with a MongoDB duplicate-key error (code `11000`). See the [Hash Formula](#sha1-hash-formula) section below.
+</ResponseField>
+
+## Indexes
+
+| Index                     | Type     | Purpose                                         |
+| ------------------------- | -------- | ----------------------------------------------- |
+| `time`                    | Single   | Fast range queries on trade datetime            |
+| `symbol`                  | Single   | Filter trades by ISIN                           |
+| `{ symbol, time }`        | Compound | Efficient per-symbol time-range queries         |
+| `hash`                    | Unique   | Prevents duplicate imports (idempotency guard)  |
+
+## SHA1 Hash Formula
+
+The `hash` field is computed at import time from the following pipe-delimited concatenation of trade attributes and pagination context:
+
+```
+SHA1(symbol | time.toISOString() | tradePrice | quantity | volume | pageIndex | rowIndex | queryKey)
+```
+
+Including `pageIndex`, `rowIndex`, and `queryKey` ensures that two trades with identical prices, quantities, and timestamps appearing at different positions in the API response still produce distinct hashes, which correctly prevents false-positive deduplication.
+
+<Note>
+  `queryKey` encodes the query parameters used to fetch the page (e.g. date range and search key), making the hash stable across re-runs with the same request parameters.
+</Note>
+
+## Import
+
+```typescript
+import { TradeModel, ITradeDto, ITradeRow } from "../schema/Trade.schema";
+```
+
+## Example Document
+
+```json
+{
+  "time": "2026-04-17T11:02:00.000Z",
+  "symbol": "UZ7011340005",
+  "issuer": "<Hamkorbank> ATB",
+  "securityType": "Простые акции",
+  "market": "STK",
+  "platform": "G1",
+  "tradePrice": 4250,
+  "quantity": 100,
+  "volume": 425000,
+  "hash": "a1b2c3d4e5f6...",
+  "createDate": "2026-04-18T08:00:00.000Z",
+  "updatedDate": "2026-04-18T08:00:00.000Z"
+}
+```

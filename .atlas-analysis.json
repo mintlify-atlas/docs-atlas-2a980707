@@ -1,0 +1,104 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "UZSE Backtest App",
+  "projectDescription": "A toolkit for scraping trade data from the Uzbekistan Stock Exchange (UZSE), building OHLCV candlestick data across multiple timeframes, and running Pine Script technical analysis indicators via the backtest-kit editor.",
+  "theme": "luma",
+  "primaryColor": "#1A7FDB",
+  "lightColor": "#EAF4FF",
+  "darkColor": "#0D3F70",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guide",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Data Pipeline",
+            "pages": [
+              "guides/download-trades",
+              "guides/import-trades",
+              "guides/build-candles",
+              "guides/batch-fetch"
+            ]
+          },
+          {
+            "group": "Analysis",
+            "pages": [
+              "guides/editor",
+              "guides/pine-script",
+              "guides/check-gaps"
+            ]
+          },
+          {
+            "group": "Infrastructure",
+            "pages": [
+              "guides/mongodb",
+              "guides/docker-services",
+              "guides/configuration"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Scripts",
+            "pages": [
+              "reference/download-trades",
+              "reference/import-trades",
+              "reference/build-candles",
+              "reference/check-gaps"
+            ]
+          },
+          {
+            "group": "Data Schemas",
+            "pages": [
+              "reference/trade-schema",
+              "reference/candle-schema"
+            ]
+          },
+          {
+            "group": "Modules",
+            "pages": [
+              "reference/exchange-module",
+              "reference/candle-algorithm"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Headless browser scraping of UZSE trade result pages using Playwright",
+    "HTML trade table parser with SHA1-based deduplication for idempotent imports",
+    "OHLCV candlestick builder supporting 11 timeframes (1m through 1d) from raw trade data",
+    "Gap-filling for intraday and non-trading days to produce continuous candlestick series",
+    "MongoDB-backed exchange adapter registerable with backtest-kit via addExchangeSchema",
+    "Pine Script indicator support through the backtest-kit editor (npm start)",
+    "Cross-platform batch fetch scripts for Linux (fetch.sh) and Windows (fetch.bat)",
+    "Docker Compose configurations for MongoDB, MinIO, and Redis"
+  ],
+  "publicApiSurface": [
+    "npx tsx scripts/download-trades.ts <symbol> <begin> <end> [mktId]",
+    "npx tsx scripts/import-trades.ts",
+    "npx tsx scripts/build-candles.ts <symbol> <isin>",
+    "npx tsx scripts/check-gaps.ts",
+    "npm start (launches @backtest-kit/cli editor)",
+    "scripts/linux/fetch.sh (batch download+import from Feb 2018 to Apr 2026)",
+    "scripts/win/fetch.bat (Windows equivalent of fetch.sh)",
+    "addExchangeSchema({ exchangeName, getCandles }) — backtest-kit exchange adapter",
+    "CandleModel (Mongoose model for candle-items collection)",
+    "TradeModel (Mongoose model for trade-results collection)",
+    "ICandleDto { symbol, interval, timestamp, open, high, low, close, volume }",
+    "ITradeDto { time, symbol, issuer, securityType, market, platform, tradePrice, quantity, volume, hash }",
+    "TIMEFRAMES: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 1d",
+    "MONGO_URI environment variable (default: mongodb://localhost:27017/backtest)"
+  ]
+}

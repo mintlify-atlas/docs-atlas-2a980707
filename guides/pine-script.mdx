@@ -1,0 +1,105 @@
+---
+title: "Applying Pine Script Indicators to UZSE Data"
+sidebarTitle: "Pine Script"
+description: "Use the backtest-kit editor to write and visualize Pine Script v6 technical analysis indicators on UZSE candlestick data stored in MongoDB."
+---
+
+Once the backtest-kit editor is running with the `"mongo-exchange"` adapter, you can load any Pine Script v6 indicator directly onto your UZSE candlestick data. The editor's Pine Script engine executes indicator logic locally against MongoDB candles — no TradingView account or internet connection to TradingView is required. This makes it possible to apply the full Pine Script ecosystem to exchanges that TradingView does not list, including UZSE.
+
+## What Pine Script Means in This Context
+
+Pine Script® is TradingView's proprietary scripting language for technical analysis indicators and strategies. It is normally executed on TradingView's servers against their data feeds. The backtest-kit project implements Pine Script execution independently, running the same indicator logic outside TradingView against any registered candle source.
+
+Key points to understand:
+
+- The editor supports **Pine Script v6** syntax, the current version
+- Indicators written for TradingView can be pasted into the editor and run against your local UZSE candles without modification, subject to the functions and built-ins that backtest-kit implements
+- The `"mongo-exchange"` adapter supplies the `open`, `high`, `low`, `close`, and `volume` series that Pine Script built-ins like `ta.ema()`, `ta.rsi()`, and divergence logic rely on
+- Because the data is local, you can iterate and experiment on UZSE symbols that simply do not exist anywhere in TradingView's data catalog
+
+## Example Indicator: DeltaPulse Wave
+
+The repository includes a ready-to-use Pine Script v6 indicator at `math/deltapulse_wave.pine`. It is a volume-delta oscillator originally authored by ChartPrime.
+
+### What It Does
+
+DeltaPulse Wave calculates **Relative Delta Strength (RDS)**: a normalized measure of buying versus selling pressure derived from candle volume. On each bar, volume is classified as buy volume (when `close > open`) or sell volume (when `close < open`). Both sides are smoothed with an EMA over the `waveLen` lookback period, then normalized against total volume to produce a percentage-scaled oscillator.
+
+A second EMA pass with `smoothLen` produces the final `deltaWave` value plotted in the indicator pane. The wave oscillates above and below zero — positive values indicate net buying pressure, negative values indicate net selling.
+
+Beyond the oscillator, the indicator detects **bullish and bearish divergences**: cases where price makes a new lower low (or higher high) but the wave does not confirm, suggesting weakening momentum. Divergence lines are drawn on both the price chart and the oscillator pane, and a dashboard table summarizes the current wave value, trend direction, and last detected divergence type.
+
+### Indicator Header and Inputs
+
+```pine
+//@version=6
+indicator("DeltaPulse Wave [ChartPrime]", "DeltaPulse Osc [ChartPrime]", overlay = false, precision = 2)
+
+int   waveLen     = input.int(20, "Wave Lookback", minval = 5)
+int   smoothLen   = input.int(5, "Smoothing", minval = 1)
+float obThreshold = input.float(25.0, "Upper Threshold (OB)")
+float osThreshold = input.float(-25.0, "Lower Threshold (OS)")
+```
+
+The full set of configurable inputs is:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `waveLen` | `20` | EMA lookback period for computing relative delta strength |
+| `smoothLen` | `5` | Additional EMA smoothing applied to the raw RDS value |
+| `obThreshold` | `25.0` | Upper level — readings above this indicate overbought conditions |
+| `osThreshold` | `-25.0` | Lower level — readings below this indicate oversold conditions |
+| `minGap` | `5` | Minimum bar separation between two peaks/troughs to confirm a divergence |
+| `showLines` | `true` | Toggle divergence line drawing on the chart |
+
+The indicator file is located at `math/deltapulse_wave.pine` in the project root. Copy its contents into the editor's Pine Script pane to run it against any UZSE symbol.
+
+### Core Calculation
+
+The wave value is computed in two steps:
+
+```pine
+// Step 1 — Relative Delta Strength
+float buyVol       = close > open ? volume : 0.0
+float sellVol      = close < open ? volume : 0.0
+float smoothedBuy  = ta.ema(buyVol, waveLen)
+float smoothedSell = ta.ema(sellVol, waveLen)
+float smoothedTot  = ta.ema(volume > 0 ? volume : 1, waveLen)
+
+float rdsRaw    = (smoothedBuy - smoothedSell) / (smoothedTot > 0 ? smoothedTot : 1) * 100
+
+// Step 2 — Final smoothed wave
+float deltaWave = ta.ema(rdsRaw, smoothLen)
+```
+
+## Limitations and Market Context
+
+<Warning>
+  Standard Pine Script indicators are calibrated on liquid, continuously-traded markets. UZSE has structural characteristics that can produce misleading signals — understand these before acting on any indicator output.
+</Warning>
+
+### Low Liquidity and Sparse Trading Days
+
+UZSE is an emerging market exchange with low daily turnover. Many symbols trade only a handful of times per session, and entire days can pass with no trades at all. `build-candles.ts` fills non-trading days with `OHLC = last_close` and `volume = 0`, which means the volume-based calculations in DeltaPulse Wave (and most momentum indicators) will produce flat, zero-volume bars for those periods. This is technically correct but visually clutters the oscillator with long flat regions.
+
+### Single-Price Auction Days
+
+After a period of no trading, the first resumption day often executes at a price significantly different from the last traded close. This creates a gap candle — a large move with a single data point — that indicators will treat as a strong signal. In practice, it reflects the auction mechanism, not sustained directional pressure.
+
+### News Sentiment and Political Economy
+
+The article accompanying this project notes that conventional news sentiment analysis has limited applicability to UZSE. Uzbekistan's financial news is not internationally media-prominent, and the primary market mover for many listed companies is policy direction from the office of the president of the republic. An indicator calibrated on historical price patterns cannot account for the discrete, event-driven nature of this sentiment source.
+
+<Info>
+  One documented example: Hamkorbank's trading was halted from 12 August to 21 August 2023 due to a 3× authorized capital increase through an additional share issuance. This appears as a complete gap in the trade data — not a signal, but a corporate event. Check the gap report before interpreting any indicator signal around such periods.
+</Info>
+
+<Tip>
+  Run `check-gaps.ts` to identify non-trading days in your dataset before interpreting indicator signals. Knowing where the gaps are helps you distinguish real momentum shifts from auction-day artifacts or corporate event gaps.
+</Tip>
+
+<CardGroup cols={1}>
+  <Card title="Checking for Trading Gaps" icon="calendar-xmark" href="/guides/check-gaps">
+    Identify weekends, holidays, and exchange closures in your UZSE dataset to contextualize indicator signals correctly.
+  </Card>
+</CardGroup>

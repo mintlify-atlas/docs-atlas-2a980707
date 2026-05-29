@@ -1,0 +1,146 @@
+---
+title: "Building OHLCV Candlesticks from UZSE Trade Data"
+sidebarTitle: "Build Candles"
+description: "Aggregate raw UZSE trades into continuous OHLCV candlestick series across 11 timeframes, with automatic intraday and non-trading day gap-filling."
+---
+
+`build-candles.ts` is the final step in the data pipeline. It reads every trade for a given ISIN from the `trade-results` collection, aggregates them into 1-minute buckets, forward-fills every gap (intraday minutes with no activity and entire non-trading days), and then fans the filled 1-minute series out into 10 additional higher timeframes — writing all resulting candles to the `candle-items` collection.
+
+## Usage
+
+```bash
+npx tsx scripts/build-candles.ts <symbol> <isin>
+```
+
+### Parameters
+
+<ParamField path="symbol" type="string" required>
+  The display ticker symbol stored on each candle document, used by the backtest-kit editor to query candles.  
+  Example: `HMKB`
+</ParamField>
+
+<ParamField path="isin" type="string" required>
+  The ISIN code used to look up trades in the `trade-results` collection.  
+  Example: `UZ7011340005`
+</ParamField>
+
+### Example
+
+```bash
+npx tsx scripts/build-candles.ts HMKB UZ7011340005
+```
+
+## Supported Timeframes
+
+The script generates candles for all 11 timeframes in a single pass:
+
+| Interval | Minutes |
+|---|---|
+| `1m`  | 1 |
+| `3m`  | 3 |
+| `5m`  | 5 |
+| `15m` | 15 |
+| `30m` | 30 |
+| `1h`  | 60 |
+| `2h`  | 120 |
+| `4h`  | 240 |
+| `6h`  | 360 |
+| `8h`  | 480 |
+| `1d`  | 1440 |
+
+## Algorithm
+
+The candle-building process follows five numbered steps, each building on the output of the previous.
+
+<Steps>
+
+  <Step title="Aggregating Real Minutes">
+    Each trade is placed into a 1-minute bucket using `floor(time, 1m)`. Multiple trades within the same minute are combined into a single OHLCV candle:
+
+    - **open** — price of the first trade in the bucket
+    - **high / low** — maximum / minimum price across all trades
+    - **close** — price of the last trade in the bucket
+    - **volume** — sum of `quantity` (number of securities, not UZS value)
+
+    The script processes trades one calendar day at a time, loading only that day's records from MongoDB to keep memory usage flat across long histories.
+  </Step>
+
+  <Step title="Filling Intraday Gaps">
+    A continuous 1-minute series is generated from `00:00` to `23:59` for every day in the range. Minutes that have no real trades are filled with:
+
+    - **OHLC** = `close` of the most recent preceding real candle
+    - **volume** = `0`
+
+    This ensures every timeframe has a contiguous series with no missing bars, as required by the backtest-kit editor.
+  </Step>
+
+  <Step title="Filling Non-Trading Days">
+    Days on which the exchange was closed (weekends, public holidays) contain no trades at all. All 1,440 minutes of such a day receive:
+
+    - **OHLC** = `close` of the last day that had real trades
+    - **volume** = `0`
+
+    The carry-forward value (`lastClose`) is tracked across the entire day loop so it propagates correctly through consecutive non-trading days.
+  </Step>
+
+  <Step title="Aggregating Higher Timeframes">
+    All 11 timeframes (including 1m) are accumulated simultaneously in a single pass over the filled 1-minute series for each day. Each higher-timeframe bucket is keyed by `floor(timestamp, N minutes)`:
+
+    - **open** — from the first 1m candle of the period
+    - **high / low** — max / min across all 1m candles in the period
+    - **close** — from the last 1m candle of the period
+    - **volume** — sum of volume across all 1m candles in the period
+
+    At the end of each day the accumulated documents for all timeframes are batch-inserted into MongoDB in a single `insertMany` call.
+  </Step>
+
+  <Step title="Idempotency">
+    The `candle-items` collection has a compound unique index on `{ symbol, interval, timestamp }`. If a candle for a given symbol, timeframe, and timestamp already exists, the `insertMany` skips it (using `ordered: false`) rather than throwing an error. The script tallies both `inserted` and `skipped` counters and prints them at the end.
+  </Step>
+
+</Steps>
+
+## MongoDB Collection
+
+Candles are stored in the **`candle-items`** collection with the following document shape (from `Candle.schema.ts`):
+
+```typescript
+{
+  symbol:    string,  // display ticker, e.g. "HMKB"
+  interval:  string,  // e.g. "1m", "1h", "1d"
+  timestamp: number,  // Unix epoch milliseconds (UTC)
+  open:      number,
+  high:      number,
+  low:       number,
+  close:     number,
+  volume:    number,
+}
+```
+
+The unique index is `{ symbol: 1, interval: 1, timestamp: 1 }`.
+
+## Progress Output
+
+The script writes a single auto-updating line to stdout per day, showing live progress:
+
+```
+[47/3012] 2018-04-17  trades:12  real_min:9  candles:15840  inserted:744480  skipped:0
+```
+
+At the end of the full run a summary is printed:
+
+```
+Done. Inserted: 15163200, skipped (duplicates): 0
+```
+
+<Tip>
+  Run `build-candles.ts` only after all the trade data you want is already in MongoDB. Re-running the script at any time is safe — any candles that were already built will be counted as skipped and no duplicates will be created.
+</Tip>
+
+<Note>
+  If you have a pre-built candle dump (e.g. `backtest.candle-items.json`), you can bypass the build step entirely and import directly with `mongoimport`:
+
+  ```bash
+  mongoimport --db backtest --collection candle-items --file backtest.candle-items.json --jsonArray
+  ```
+</Note>

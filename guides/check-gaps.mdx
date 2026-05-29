@@ -1,0 +1,117 @@
+---
+title: "Checking for Trading Gaps in Your UZSE Dataset"
+sidebarTitle: "Check Gaps"
+description: "Identify weekends, holidays, and other non-trading days in your imported UZSE trade data to validate dataset completeness before building candles."
+---
+
+`scripts/check-gaps.ts` scans the raw `trade-results` collection in MongoDB and reports every calendar date between the first and last recorded trade that has no trading activity. Running it after importing new data and before building candles lets you confirm that your dataset is complete and that any gaps you find are genuine exchange closures rather than missing downloads.
+
+## Usage
+
+No arguments are required. Run the script with `tsx` from the project root:
+
+```bash
+npx tsx scripts/check-gaps.ts
+```
+
+The script connects to MongoDB using the `MONGO_URI` environment variable (default: `mongodb://localhost:27017/backtest`), performs its analysis, prints the results to stdout, and then disconnects cleanly.
+
+## What It Outputs
+
+The script prints two lines of summary followed by a labeled list of every missing date:
+
+```
+Trading days in DB: 247
+Missing days (18):
+  2023-08-12 (Сб)
+  2023-08-14 (Пн)
+  2023-08-15 (Вт)
+  2023-08-16 (Ср)
+  2023-08-17 (Чт)
+  2023-08-18 (Пт)
+  2023-08-19 (Сб)
+  2023-08-20 (Вс)
+  2023-08-21 (Пн)
+  ...
+```
+
+- **Trading days in DB** — the count of distinct calendar dates on which at least one trade record exists
+- **Missing days** — every date in the continuous range from the first to the last trading day that has no records, annotated with its Russian day-of-week abbreviation
+
+## Day-of-Week Labels
+
+The script uses Russian language day-of-week abbreviations, matching the locale of the UZSE data source:
+
+| Label | Day       |
+|-------|-----------|
+| `Вс`  | Sunday    |
+| `Пн`  | Monday    |
+| `Вт`  | Tuesday   |
+| `Ср`  | Wednesday |
+| `Чт`  | Thursday  |
+| `Пт`  | Friday    |
+| `Сб`  | Saturday  |
+
+<Info>
+  A missing day labeled `Вс` (Sunday) or `Сб` (Saturday) is always expected — UZSE does not trade on weekends. Missing days on weekdays warrant closer investigation.
+</Info>
+
+## How It Works
+
+The script follows a straightforward three-step process:
+
+<Steps>
+  <Step title="Load all trade timestamps">
+    `TradeModel.find({}, { time: 1 })` retrieves every document from the `trade-results` collection, projecting only the `time` field to keep memory usage low.
+  </Step>
+  <Step title="Extract unique trading dates">
+    Each `time` value is converted to a `YYYY-MM-DD` key using a zero-padded formatter, and the results are deduplicated into a `Set`. This gives the exact set of calendar dates on which trading occurred.
+  </Step>
+  <Step title="Walk the date range and find gaps">
+    The script iterates day-by-day from the earliest to the latest trading date. Any date not present in the set is pushed onto the `missing` array with its day-of-week label.
+
+    ```typescript
+    const DOW = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const key = toKey(d);
+      if (!days.has(key)) missing.push(`${key} (${DOW[d.getDay()]})`);
+    }
+    ```
+  </Step>
+</Steps>
+
+## Why Gaps Occur
+
+Not all gaps indicate missing data. Common reasons include:
+
+- **Weekends** — UZSE is closed every Saturday and Sunday; these will always appear as missing days
+- **Public holidays** — Uzbek national holidays (Nowruz, Independence Day, etc.) result in exchange closures
+- **Exchange-ordered trading halts** — The most notable example is the August 2023 Hamkorbank halt, during which trading was suspended for approximately ten days following the registration of a new share issuance that tripled the bank's authorized capital. This type of gap reflects a deliberate corporate or regulatory event, not missing data
+
+<Warning>
+  If you see a gap on a weekday that does not align with a known public holiday or announced trading halt, re-check your download scripts. The UZSE website paginates trade results and limits exports to one month at a time — it is possible that a page was missed during collection.
+</Warning>
+
+## Gaps in trade-results vs. candle-items
+
+Finding gaps in the `trade-results` collection does **not** mean your candle data will have gaps. The `build-candles.ts` script handles missing days automatically:
+
+- For any day with no trade records, it synthesizes a candle with `open = high = low = close = last_close` and `volume = 0`
+- This ensures the `candle-items` collection has a continuous, unbroken time series suitable for indicator calculations
+
+`check-gaps.ts` is therefore a **data validation tool**, not a repair tool. Use it to understand your dataset and to provide context when interpreting indicator signals near gap periods — not to fix the candle output.
+
+## When to Run
+
+Run `check-gaps.ts` in the following situations:
+
+- **After importing new trade data** — confirm that the newly added date range is complete and that no download pages were skipped
+- **Before building candles** — understand which gaps will be synthesized so you can contextualize the resulting candles correctly
+- **When investigating unusual indicator signals** — a spike or flat region in a Pine Script indicator near a known gap date is likely an artifact of the gap-fill candle rather than a genuine market signal
+
+<CardGroup cols={1}>
+  <Card title="Applying Pine Script Indicators" icon="chart-line" href="/guides/pine-script">
+    Learn how gap-filled candles affect indicator calculations and how to interpret signals around non-trading periods.
+  </Card>
+</CardGroup>

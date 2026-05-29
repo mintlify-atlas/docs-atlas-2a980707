@@ -1,20 +1,68 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "UZSE Backtest App: Pine Script on the Uzbekistan Stock Exchange"
+sidebarTitle: "Home"
+description: "Collect UZSE trade data, build OHLCV candlesticks across 11 timeframes, and run Pine Script indicators on an exchange not supported by TradingView."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+UZSE Backtest App is an open-source toolkit that bridges the gap between the Uzbekistan Stock Exchange (UZSE) and the Pine Script ecosystem. It scrapes raw trade data directly from uzse.uz, stores it in MongoDB, aggregates it into continuous OHLCV candlestick series, and feeds the result into the backtest-kit editor — giving you full TradingView-style technical analysis on a market that TradingView doesn't support.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Set up MongoDB, download your first trades, and view a chart in under 10 minutes.
+  </Card>
+  <Card title="Data Pipeline" icon="arrow-right-arrow-left" href="/guides/download-trades">
+    Download, parse, and import UZSE trade pages into MongoDB automatically.
+  </Card>
+  <Card title="Build Candles" icon="chart-candlestick" href="/guides/build-candles">
+    Aggregate raw trades into 11 OHLCV timeframes with continuous gap-filling.
+  </Card>
+  <Card title="Pine Script Editor" icon="code" href="/guides/editor">
+    Connect MongoDB candles to the backtest-kit editor and run technical indicators.
+  </Card>
+</CardGroup>
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+## How It Works
+
+UZSE Backtest App follows a three-stage pipeline:
+
+<Steps>
+  <Step title="Download Trade Data">
+    Use `download-trades.ts` to scrape paginated trade results from uzse.uz using a headless Playwright browser. HTML pages are saved locally in `tmp/`.
+  </Step>
+  <Step title="Import into MongoDB">
+    Run `import-trades.ts` to parse the saved HTML tables, deduplicate records via SHA1 hash, and insert trades into the `trade-results` collection.
+  </Step>
+  <Step title="Build Candlesticks">
+    Execute `build-candles.ts` to aggregate trades into OHLCV candles across 11 timeframes (1m → 1d), filling intraday and non-trading day gaps automatically.
+  </Step>
+  <Step title="Analyze with Pine Script">
+    Start the backtest-kit editor with `npm start` and apply Pine Script indicators to your UZSE candle data.
+  </Step>
+</Steps>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Playwright Scraping" icon="browser">
+    Headless browser automation handles pagination and JavaScript-rendered pages on uzse.uz with automatic retries.
+  </Card>
+  <Card title="Idempotent Imports" icon="shield-check">
+    SHA1-based deduplication ensures re-running any script never creates duplicate records in MongoDB.
+  </Card>
+  <Card title="11 Timeframes" icon="clock">
+    From 1-minute to daily candles — all built from the same raw 1m series for perfect consistency.
+  </Card>
+  <Card title="Continuous Series" icon="wave-sine">
+    Intraday gaps and non-trading days are automatically filled so indicators always receive a gapless series.
+  </Card>
+  <Card title="Batch Fetch Scripts" icon="terminal">
+    Cross-platform scripts (`fetch.sh` / `fetch.bat`) download and import the full UZSE history from Feb 2018 to present.
+  </Card>
+  <Card title="Reference Schemas" icon="database">
+    Typed Mongoose models for `trade-results` and `candle-items` with unique indexes for safety.
+  </Card>
+</CardGroup>
+
+<Note>
+  No TradingView account or API key is required. All data is collected directly from the public UZSE trade results page at uzse.uz.
+</Note>

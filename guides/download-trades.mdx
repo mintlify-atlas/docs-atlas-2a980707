@@ -1,0 +1,99 @@
+---
+title: "Downloading UZSE Trade Data with Playwright"
+sidebarTitle: "Download Trades"
+description: "Scrape paginated trade results from uzse.uz using a headless Playwright browser and save raw HTML pages locally for import."
+---
+
+`download-trades.ts` is the first step in the data pipeline. It launches a headless Chromium browser via Playwright, navigates to the UZSE trade results page at `uzse.uz/trade_results`, and iterates through every paginated result for a given symbol and date range — saving each page as a raw HTML file in the local `tmp/` directory, ready for import.
+
+## How It Works
+
+The script uses Playwright's Chromium engine in headless mode so it can execute the JavaScript-rendered UZSE trade results page just as a real browser would.
+
+**Pagination detection** is handled by `getLastPage()`, which scans the first page's HTML for a `class="last next"` anchor tag and reads its `page=` query parameter. This tells the script exactly how many pages to fetch before stopping.
+
+**Retry logic** is built into every page fetch. If a navigation times out (the `networkidle` wait exceeds 30 seconds), the script warns and retries automatically:
+
+- **Retries:** 10 attempts per page
+- **Retry delay:** 30 seconds between attempts
+- **Timeout per attempt:** 30 seconds
+
+**Tmp directory management:** at start-up the script creates `tmp/` if it does not exist and clears any pre-existing `.html` files from a previous run before fetching fresh pages.
+
+## Usage
+
+```bash
+npx tsx scripts/download-trades.ts <symbol> <begin> <end> [mktId]
+```
+
+### Parameters
+
+<ParamField path="symbol" type="string" required>
+  The ISIN code of the security to download trades for.  
+  Example: `UZ7011340005`
+</ParamField>
+
+<ParamField path="begin" type="string" required>
+  Start date of the query window in `DD.MM.YYYY` format.  
+  Example: `01.03.2026`
+</ParamField>
+
+<ParamField path="end" type="string" required>
+  End date of the query window in `DD.MM.YYYY` format.  
+  Example: `31.03.2026`
+</ParamField>
+
+<ParamField path="mktId" type="string" default="STK">
+  Market sector filter. Defaults to `STK` (equities) when omitted.  
+  Common values: `STK` (stocks), `BON` (bonds).
+</ParamField>
+
+## Examples
+
+Download all trades for March 2026:
+
+```bash
+npx tsx scripts/download-trades.ts UZ7011340005 01.03.2026 31.03.2026
+```
+
+Download a two-day window with the market sector made explicit:
+
+```bash
+npx tsx scripts/download-trades.ts UZ7011340005 17.04.2026 18.04.2026 STK
+```
+
+## Output
+
+Each paginated result is written to the `tmp/` directory as a numbered HTML file:
+
+```
+tmp/
+  trades_page_1.html
+  trades_page_2.html
+  trades_page_3.html
+  ...
+```
+
+The script prints the total page count when it begins and logs progress for every page beyond the first:
+
+```
+Total pages: 14
+Downloaded page 2/14
+Downloaded page 3/14
+...
+Done. HTML saved to /path/to/tmp
+```
+
+<Note>
+  The `tmp/` directory is wiped of all `.html` files at the **start** of every run and again automatically after `import-trades.ts` has finished processing them. Never store files you want to keep inside `tmp/`.
+</Note>
+
+<Warning>
+  Wide date ranges can produce dozens or hundreds of pages. The script retries each page up to 10 times with a 30-second delay on timeout, so a slow or rate-limited connection can make the process take considerably longer than expected. Prefer month-by-month date ranges (as the batch scripts do) to keep runs manageable.
+</Warning>
+
+## Next Step
+
+<Card title="Import Trades into MongoDB" icon="database" href="/guides/import-trades">
+  Parse the downloaded HTML files, extract structured trade records, and insert them into MongoDB with SHA1-based deduplication.
+</Card>

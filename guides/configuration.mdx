@@ -1,0 +1,127 @@
+---
+title: "Configuration Reference for UZSE Backtest App"
+sidebarTitle: "Configuration"
+description: "Configure MongoDB connection, Node.js prerequisites, TypeScript execution, and environment variables for the UZSE Backtest App data pipeline."
+---
+
+The UZSE Backtest App is intentionally lean on configuration — the only runtime variable the data pipeline requires is a MongoDB connection string, and even that has a sensible local default. Everything else (TypeScript compilation, path aliases, script execution) is handled through `tsconfig.json` and `package.json` with no separate config file or build step needed.
+
+---
+
+## Environment Variables
+
+<ParamField path="MONGO_URI" type="string" default="mongodb://localhost:27017/backtest">
+  MongoDB connection string consumed by `config/setup.ts` and, through it, by every pipeline script. When the variable is absent the app connects to a local MongoDB instance on the default port and uses the `backtest` database.
+
+  ```bash
+  MONGO_URI=mongodb://localhost:27017/backtest
+  ```
+
+  Set this variable when connecting to a remote or authenticated MongoDB instance:
+
+  ```bash
+  MONGO_URI=mongodb://user:password@host:27017/backtest npx tsx scripts/import-trades.ts
+  ```
+</ParamField>
+
+<Note>
+  `MONGO_URI` is read directly from the process environment — no `.env` file is required. Export the variable in your shell session or prepend it to individual commands as shown above.
+</Note>
+
+---
+
+## Prerequisites
+
+Before running any script, make sure the following are available in your environment:
+
+<CardGroup cols={2}>
+  <Card title="Node.js ≥ 18" icon="node-js">
+    Required for ESNext module support and the native `fetch` API used by pipeline scripts. Download from [nodejs.org](https://nodejs.org).
+  </Card>
+  <Card title="npm" icon="box">
+    Bundled with Node.js. Used to install dependencies via `npm install` and to invoke `npx tsx`.
+  </Card>
+  <Card title="Docker & Docker Compose" icon="docker">
+    Required only if you use the provided Compose files to run MongoDB, MinIO, or Redis locally. Not needed when connecting to a remote instance.
+  </Card>
+  <Card title="tsx (via npx)" icon="code">
+    Executes TypeScript files directly without a compilation step. Invoked as `npx tsx` — no global installation required.
+  </Card>
+</CardGroup>
+
+---
+
+## TypeScript Configuration
+
+All scripts are authored in TypeScript and run directly via `tsx`. The `tsconfig.json` at the project root governs type-checking and module resolution:
+
+| Option | Value | Purpose |
+|---|---|---|
+| `target` | `ES2020` | Emit-compatible JavaScript target |
+| `module` | `ESNext` | Use ES module syntax throughout |
+| `moduleResolution` | `bundler` | Resolve bare imports the way bundlers do |
+| `noEmit` | `true` | Type-check only — `tsx` handles execution |
+
+### Path Aliases
+
+The config declares three path aliases that keep import statements concise across scripts:
+
+| Alias | Resolves to |
+|---|---|
+| `logic/*` | `./schema/*` |
+| `utils` | `./utils/index.ts` |
+| `utils/*` | `./utils/*` |
+
+These aliases are resolved by `tsx` at runtime, so no separate path-mapping plugin or build pass is needed.
+
+---
+
+## Dependencies Overview
+
+Dependencies are declared in `package.json` under the project name `backtest-kit-project`. The table below groups them by role:
+
+| Package | Version | Role |
+|---|---|---|
+| `backtest-kit` | `^9.8.4` | Core trading analysis framework |
+| `@backtest-kit/cli` | `^9.8.4` | CLI runner and Pine Script editor (`npm start`) |
+| `@backtest-kit/graph` | `^9.8.4` | Charting and visualisation layer |
+| `@backtest-kit/pinets` | `^9.8.4` | Pine Script indicator runtime |
+| `@backtest-kit/ui` | `^9.8.4` | UI components for the editor |
+| `mongoose` | `^8.23.0` | MongoDB ODM for `trade-results` and `candle-items` schemas |
+| `playwright` | `^1.59.1` | Headless browser for scraping `uzse.uz` |
+| `functools-kit` | `^2.2.0` | Functional utility helpers |
+| `get-moment-stamp` | `^2.0.0` | Timestamp normalisation utilities |
+| `garch` | `^1.2.3` | GARCH volatility modelling |
+| `volume-anomaly` | `^1.2.3` | Volume anomaly detection |
+| `agent-swarm-kit` | `^2.7.0` | AI agent orchestration (advanced use) |
+| `ollama` | `^0.6.3` | Local LLM support via Ollama (advanced use) |
+
+<Note>
+  `agent-swarm-kit` and `ollama` support advanced AI-driven signal generation workflows. They are not required for the core trade collection and candle-building pipeline.
+</Note>
+
+---
+
+## Script Execution
+
+All pipeline scripts live under `scripts/` and are executed directly with `tsx` — no compilation or build step is ever needed:
+
+```bash
+npx tsx scripts/<script-name>.ts [args]
+```
+
+For example, to import trades for a specific date:
+
+```bash
+npx tsx scripts/import-trades.ts 2024-01-15
+```
+
+And to build OHLCV candles from the stored trades:
+
+```bash
+npx tsx scripts/build-candles.ts
+```
+
+<Tip>
+  Because `noEmit: true` is set in `tsconfig.json`, running `tsc` only type-checks the project. Use `npx tsx` for actual execution — it compiles and runs TypeScript in a single step with no intermediate output files.
+</Tip>

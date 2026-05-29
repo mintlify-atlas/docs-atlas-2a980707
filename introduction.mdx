@@ -1,0 +1,91 @@
+---
+title: "UZSE Backtest App: Pine Script on Unsupported Exchanges"
+sidebarTitle: "Introduction"
+description: "Learn how UZSE Backtest App collects trade data from the Uzbekistan Stock Exchange and turns it into Pine Script-ready OHLCV candlesticks."
+---
+
+UZSE Backtest App is a local CLI toolkit that bridges the gap between regional stock exchanges and the Pine Script ecosystem. TradingView provides an unmatched library of technical analysis indicators, but many exchanges — including UZSE (Uzbekistan Stock Exchange) — are simply absent from its platform: no price data, no charts, no trading. This project solves that problem by scraping raw trade execution records directly from the UZSE website, storing them in MongoDB, aggregating them into properly gapless OHLCV candlesticks across 11 timeframes, and serving the resulting data to the backtest-kit editor so you can run any Pine Script indicator against real UZSE market history.
+
+<Info>
+  The following regional stock exchanges have **no data on TradingView** at all and would benefit from this same approach:
+
+  - **MSE** — Mongolia Stock Exchange
+  - **UZSE** — Uzbekistan Stock Exchange *(this project)*
+  - **DSE** — Dhaka Stock Exchange (Bangladesh)
+  - **GSE** — Ghana Stock Exchange
+  - **SGBV** — Algiers Stock Exchange (Algeria)
+  - **BSE** — Botswana Stock Exchange
+  - **ESE** — Eswatini Stock Exchange
+  - **MERJ** — MERJ Exchange (Seychelles)
+</Info>
+
+## Why Not Just Use the UZSE Website?
+
+The UZSE website exposes only raw aggregate trade records — a paginated HTML table with no charting, no indicators, and no minute-level data in its Excel exports. Downloads are capped at one month at a time, the registration flow is broken, and there is no API. The result is that even basic technical analysis (moving averages, RSI, volume profiles) is impossible through official channels alone. UZSE Backtest App automates the entire collection-to-chart pipeline so you can work with UZSE data the same way you would work with any exchange on TradingView.
+
+## Architecture Overview
+
+The project runs as a three-stage pipeline. Each stage is a standalone TypeScript script you invoke with `npx tsx`, capped off by the backtest-kit editor that consumes the final candlestick data.
+
+<Steps>
+  <Step title="Download trade pages">
+    `scripts/download-trades.ts` launches a headless Chromium browser via Playwright, navigates the paginated `trade_results` endpoint on `uzse.uz`, and saves every page as an HTML file in the local `tmp/` directory. You pass an ISIN code plus a date range; the script handles pagination and retries automatically.
+  </Step>
+  <Step title="Import trades into MongoDB">
+    `scripts/import-trades.ts` reads every `trades_page_*.html` file from `tmp/`, parses the HTML tables row-by-row, converts Russian-language date strings to UTC timestamps, deduplicates records using a SHA-1 hash, and bulk-inserts them into the `trade-results` collection. The `tmp/` directory is cleaned up automatically after a successful run.
+  </Step>
+  <Step title="Build OHLCV candlesticks">
+    `scripts/build-candles.ts` reads the imported trades for a given symbol and ISIN, aggregates them into 1-minute buckets, fills intraday gaps and non-trading days (weekends, holidays) using the previous close so the series is continuous, and then fans up to all 11 higher timeframes. Candles land in the `candle-items` collection, indexed on `{ symbol, interval, timestamp }` to ensure idempotency.
+  </Step>
+  <Step title="Analyze with Pine Script">
+    `npm start` launches the backtest-kit editor — a local web app that reads candlestick data from MongoDB and renders interactive charts. You can paste any Pine Script indicator directly into the editor and run it against your UZSE data.
+  </Step>
+</Steps>
+
+### Supported Timeframes
+
+`build-candles.ts` produces candles for all 11 intervals in a single pass:
+
+| Interval | Minutes |
+|----------|---------|
+| `1m`  | 1    |
+| `3m`  | 3    |
+| `5m`  | 5    |
+| `15m` | 15   |
+| `30m` | 30   |
+| `1h`  | 60   |
+| `2h`  | 120  |
+| `4h`  | 240  |
+| `6h`  | 360  |
+| `8h`  | 480  |
+| `1d`  | 1440 |
+
+## Prerequisites
+
+Before running the project, make sure the following are available on your machine:
+
+- **Node.js 18+** — the scripts use native `fetch`, ES modules, and `crypto` APIs that require a modern runtime.
+- **Docker** — used to run MongoDB Community Server locally via Docker Compose. No system-level MongoDB installation needed.
+- **Git** — to clone the repository.
+- **The repository itself** — this is not an npm library; you clone and run scripts directly from the project folder.
+
+<Note>
+  MongoDB connection defaults to `mongodb://localhost:27017/backtest`. You can override this by setting the `MONGO_URI` environment variable before running any script.
+</Note>
+
+## Explore the Docs
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Clone the repo, spin up MongoDB, download a month of trades, and open the editor in minutes.
+  </Card>
+  <Card title="Download Trades" icon="download" href="/guides/download-trades">
+    Full reference for `download-trades.ts` — date formats, ISIN codes, retry behaviour, and batch scripting.
+  </Card>
+  <Card title="Build Candles" icon="chart-candlestick" href="/guides/build-candles">
+    Understand the gap-filling algorithm and how all 11 timeframes are constructed from raw trade data.
+  </Card>
+  <Card title="Editor" icon="code" href="/guides/editor">
+    Load your candlestick data into the backtest-kit editor and run Pine Script indicators locally.
+  </Card>
+</CardGroup>

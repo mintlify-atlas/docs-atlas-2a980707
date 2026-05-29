@@ -1,0 +1,102 @@
+---
+title: "download-trades.ts — UZSE Trade Page Scraper"
+sidebarTitle: "download-trades"
+description: "CLI reference for download-trades.ts: scrapes uzse.uz trade result pages using Playwright and saves HTML files to tmp/. Accepts symbol, date range, and market ID."
+---
+
+`download-trades.ts` is the first step in the data-ingestion pipeline. It launches a headless Chromium browser via Playwright, navigates to the UZSE trade results search, auto-detects the total number of result pages, and saves every page as an HTML file in `tmp/` for the downstream `import-trades.ts` script to parse.
+
+## Synopsis
+
+```bash
+npx tsx scripts/download-trades.ts <symbol> <begin> <end> [mktId]
+```
+
+## Parameters
+
+<ParamField path="symbol" type="string" required>
+  ISIN code of the security to query, e.g. `UZ7011340005`. This value is passed directly as the `search_key` query parameter to the UZSE trade results endpoint.
+</ParamField>
+
+<ParamField path="begin" type="string" required>
+  Start date of the range in `DD.MM.YYYY` format, e.g. `01.03.2026`. Inclusive.
+</ParamField>
+
+<ParamField path="end" type="string" required>
+  End date of the range in `DD.MM.YYYY` format, e.g. `31.03.2026`. Inclusive.
+</ParamField>
+
+<ParamField path="mktId" type="string">
+  Market sector code passed as `mkt_id`. Defaults to `STK` when omitted. Common values:
+
+  | Value | Description       |
+  |-------|-------------------|
+  | `STK` | Equities market   |
+  | `BON` | Bonds market      |
+</ParamField>
+
+## Constants
+
+The following retry and timeout constants are compiled into the script:
+
+| Constant      | Value    | Description                                                    |
+|---------------|----------|----------------------------------------------------------------|
+| `TIMEOUT`     | `30000`ms | Maximum wait time per page navigation before triggering a retry |
+| `RETRIES`     | `10`     | Maximum number of fetch attempts per page before aborting       |
+| `RETRY_DELAY` | `30000`ms | Pause between retry attempts                                   |
+
+## Behavior
+
+The script performs the following steps in order:
+
+1. **Clears `tmp/`** — deletes every existing `.html` file from the `tmp/` directory before starting, ensuring a clean slate.
+2. **Launches Chromium** — opens a headless Playwright browser instance.
+3. **Fetches page 1** — navigates to the first results page and saves it as `tmp/trades_page_1.html`. Scans the HTML for the pagination `class="last next"` anchor to determine `totalPages`.
+4. **Downloads pages 2..N** — iterates from page `2` to `totalPages`, saving each as `tmp/trades_page_N.html`. Each fetch is retried up to `RETRIES` times with `RETRY_DELAY` between attempts on timeout.
+5. **Closes browser** — disposes the Playwright browser after all pages are saved.
+
+## URL Pattern
+
+Each page is fetched from:
+
+```
+https://uzse.uz/trade_results?begin={begin}&end={end}&mkt_id={mktId}&page={p}&search_key={symbol}
+```
+
+## Output Files
+
+Saved under `tmp/` relative to the project root:
+
+```
+tmp/trades_page_1.html
+tmp/trades_page_2.html
+tmp/trades_page_N.html
+```
+
+<Info>
+  The `tmp/` directory is created automatically if it does not exist. All files written here are consumed and deleted by `import-trades.ts` after parsing.
+</Info>
+
+## Exit Codes
+
+| Code | Meaning                                                |
+|------|--------------------------------------------------------|
+| `0`  | All pages downloaded successfully                      |
+| `1`  | Missing required arguments, or an unrecoverable error  |
+
+## Examples
+
+```bash
+# Download March 2026 trades for Hamkorbank
+npx tsx scripts/download-trades.ts UZ7011340005 01.03.2026 31.03.2026
+
+# Download a single day
+npx tsx scripts/download-trades.ts UZ7011340005 17.04.2026 17.04.2026
+
+# Download bonds market data
+npx tsx scripts/download-trades.ts UZ7011340005 01.01.2026 31.01.2026 BON
+```
+
+<Tip>
+  For large date ranges that span many pages, the retry logic handles transient UZSE server timeouts automatically. If downloads are consistently slow, the script will pause for `30 s` between attempts and try up to 10 times per page.
+</Tip>

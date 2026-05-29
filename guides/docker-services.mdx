@@ -1,0 +1,153 @@
+---
+title: "Docker Services: MongoDB, MinIO, and Redis"
+sidebarTitle: "Docker Services"
+description: "Spin up the supporting Docker Compose services used by UZSE Backtest App — MongoDB for data storage, MinIO for object storage, and Redis for caching."
+---
+
+The project ships three self-contained Docker Compose files under the `docker/` directory — one for each supporting service. MongoDB is required for the core data pipeline; MinIO and Redis are optional services used by other backtest-kit components and can be started independently whenever your workflow needs them.
+
+<CardGroup cols={3}>
+  <Card title="MongoDB" icon="database" href="#mongodb-required">
+    Trade and candle storage. Required for all pipeline scripts.
+  </Card>
+  <Card title="MinIO" icon="box-archive" href="#minio-optional">
+    S3-compatible object storage. Used by other backtest-kit components.
+  </Card>
+  <Card title="Redis" icon="bolt" href="#redis-optional">
+    In-memory cache and message broker. Used by other backtest-kit components.
+  </Card>
+</CardGroup>
+
+---
+
+## MongoDB (Required)
+
+**File:** `docker/mongo/docker-compose.yaml`  
+**Port:** `27017`  
+**Used for:** `trade-results` and `candle-items` collections in the `backtest` database
+
+MongoDB stores every raw trade record scraped from `uzse.uz` as well as the OHLCV candles derived from them. No pipeline script will run without a reachable MongoDB instance.
+
+```yaml docker/mongo/docker-compose.yaml
+version: '3.8'
+services:
+  mongodb:
+    image: mongodb/mongodb-community-server:8.0.4-ubi8
+    container_name: node-ollama-agent-swarm-mongo-server
+    ports:
+      - '27017:27017'
+    volumes:
+      - ./mongo_data:/data/db
+    restart: always
+volumes:
+  mongo_data:
+```
+
+```bash
+cd docker/mongo && docker compose up -d
+```
+
+<Tip>
+  Trade data is persisted in `docker/mongo/mongo_data/`. The directory survives container restarts and removals — delete it manually only when you want to wipe the database.
+</Tip>
+
+---
+
+## MinIO (Optional)
+
+**File:** `docker/minio/docker-compose.yaml`  
+**Ports:** `9002` (S3 API), `9003` (Web Console)  
+**Default credentials:** `MINIO_ROOT_USER=services` / `MINIO_ROOT_PASSWORD=services`  
+**Default bucket:** `airport`
+
+MinIO provides an S3-compatible object store used by other backtest-kit components for persisting artifacts, model outputs, and report files. It is **not** required for the basic trade collection and candle-building workflow.
+
+```yaml docker/minio/docker-compose.yaml
+services:
+  minio:
+    image: docker.io/bitnami/minio:2022
+    ports:
+      - '9002:9000'
+      - '9003:9001'
+    networks:
+      - minionetwork
+    volumes:
+      - 'minio_data:/data'
+    environment:
+      - MINIO_ROOT_USER=services
+      - MINIO_ROOT_PASSWORD=services
+      - MINIO_DEFAULT_BUCKETS=airport
+    restart: always
+
+networks:
+  minionetwork:
+    driver: bridge
+
+volumes:
+  minio_data:
+    driver: local
+```
+
+```bash
+cd docker/minio && docker compose up -d
+```
+
+Once running, open the web console at [http://localhost:9003](http://localhost:9003) and sign in with `services` / `services`.
+
+<Warning>
+  The default `MINIO_ROOT_PASSWORD` is `services`. Change it in the Compose file before exposing the MinIO port to any network outside your local machine. Anyone who can reach port `9002` or `9003` with the default credentials has full read/write access to all stored objects.
+</Warning>
+
+---
+
+## Redis (Optional)
+
+**File:** `docker/redis/docker-compose.yaml`  
+**Port:** `6379`  
+**Password:** `mysecurepassword`
+
+Redis provides in-memory caching and pub/sub messaging for other backtest-kit components. It is **not** required for the basic UZSE data pipeline (trade import and candle building).
+
+```yaml docker/redis/docker-compose.yaml
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7.4.1
+    container_name: redis-server
+    ports:
+      - "6379:6379"
+    environment:
+      - REDIS_PASSWORD=mysecurepassword
+    command: ["redis-server", "--requirepass", "mysecurepassword"]
+    volumes:
+      - ./redis_data:/data
+    restart: always
+
+volumes:
+  redis_data:
+```
+
+```bash
+cd docker/redis && docker compose up -d
+```
+
+<Note>
+  Redis data is persisted in `docker/redis/redis_data/`. The container uses `--requirepass` so all connections must authenticate with `mysecurepassword`.
+</Note>
+
+---
+
+## Starting All Services
+
+Each Compose file is independent — you can start them in any order or all at once from the repository root:
+
+```bash
+cd docker/mongo  && docker compose up -d
+cd ../minio      && docker compose up -d
+cd ../redis      && docker compose up -d
+```
+
+<Tip>
+  For a fresh development environment, start MongoDB first since it is the only service the pipeline scripts depend on at runtime.
+</Tip>

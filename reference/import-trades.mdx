@@ -1,0 +1,96 @@
+---
+title: "import-trades.ts — HTML Trade Parser and MongoDB Importer"
+sidebarTitle: "import-trades"
+description: "CLI reference for import-trades.ts: parses HTML trade tables from tmp/, extracts trade records, deduplicates via SHA1 hash, and inserts into MongoDB trade-results collection."
+---
+
+`import-trades.ts` is the second step in the data-ingestion pipeline. It reads all `trades_page_*.html` files written by `download-trades.ts`, parses each HTML trade table using regex-based extraction, builds a SHA1 deduplication hash for every row, and upserts records into the MongoDB `trade-results` collection. Rows already present in the database (identified by hash collision code `11000`) are silently skipped. After processing, all HTML files are deleted from `tmp/`.
+
+## Synopsis
+
+```bash
+npx tsx scripts/import-trades.ts
+```
+
+<Info>
+  This script takes no command-line arguments. It automatically discovers and processes all `tmp/trades_page_*.html` files left by `download-trades.ts`.
+</Info>
+
+## Behavior
+
+The script performs the following steps in order:
+
+1. **Reads and sorts files** — scans `tmp/` for files matching `trades_page_*.html` and sorts them numerically by page number.
+2. **Parses HTML tables** — for each file, iterates over `<tr>` elements using a regex, extracts `<td>` cell text (stripping inner tags), and skips rows with fewer than 10 cells.
+3. **Parses Russian-format datetimes** — converts date strings such as `"17 апреля 2026, 16:02"` to JavaScript `Date` objects using the Russian month name lookup table.
+4. **Generates SHA1 hash** — computes a deduplication key from the concatenation: `symbol|time|tradePrice|quantity|volume|pageIndex|rowIndex|queryParams`.
+5. **Inserts to MongoDB** — calls `TradeModel.create()` for each row. On duplicate key error (code `11000`) the row is counted as skipped; any other error is logged.
+6. **Cleans up `tmp/`** — deletes all `.html` files from `tmp/` after all files have been processed.
+
+## Extracted Fields
+
+Each parsed table row produces a document with the following fields:
+
+| Field          | Type     | Source column | Description                                               |
+|----------------|----------|---------------|-----------------------------------------------------------|
+| `time`         | `Date`   | Column 0      | Transaction datetime, parsed from Russian locale string   |
+| `symbol`       | `string` | Column 2      | ISIN code, e.g. `UZ7011340005`                            |
+| `issuer`       | `string` | Column 3      | Company name, e.g. `Hamkorbank`                           |
+| `securityType` | `string` | Column 4      | Security type, e.g. `Простые акции`                       |
+| `market`       | `string` | Column 5      | Market sector code, e.g. `STK`                            |
+| `platform`     | `string` | Column 6      | Trading platform code, e.g. `G1`, `G2`                   |
+| `tradePrice`   | `number` | Column 7      | Price per unit                                            |
+| `quantity`     | `number` | Column 8      | Number of units traded                                    |
+| `volume`       | `number` | Column 9      | Total trade value (`tradePrice × quantity`)               |
+| `hash`         | `string` | Computed      | SHA1 deduplication key — unique index in the collection   |
+
+## Russian Month Lookup
+
+The parser recognises the following Russian genitive month names:
+
+| Russian  | Month |   | Russian   | Month |
+|----------|-------|---|-----------|-------|
+| января   | 0     |   | июля      | 6     |
+| февраля  | 1     |   | августа   | 7     |
+| марта    | 2     |   | сентября  | 8     |
+| апреля   | 3     |   | октября   | 9     |
+| мая      | 4     |   | ноября    | 10    |
+| июня     | 5     |   | декабря   | 11    |
+
+## MongoDB
+
+| Setting    | Value                                    |
+|------------|------------------------------------------|
+| Database   | `backtest`                               |
+| Collection | `trade-results`                          |
+| Connection | `MONGO_URI` env var (default: `mongodb://localhost:27017/backtest`) |
+| Unique index | `hash` field — prevents duplicate rows |
+
+<Note>
+  The script relies on the `MONGO_URI` environment variable configured in `config/setup.ts`. Ensure MongoDB is running and reachable before executing.
+</Note>
+
+## Output
+
+The script prints a progress line per file, then a summary on completion:
+
+```
+Found 3 file(s)
+MongoDB connected
+trades_page_1.html: 42 rows
+trades_page_2.html: 42 rows
+trades_page_3.html: 17 rows
+Done. Inserted: 98, skipped (duplicates): 3
+Tmp cleaned.
+```
+
+## Exit Codes
+
+| Code | Meaning                                                         |
+|------|-----------------------------------------------------------------|
+| `0`  | Parsing and import completed successfully                       |
+| `1`  | No `trades_page_*.html` files found in `tmp/`, or fatal error  |
+
+<Tip>
+  Running `import-trades.ts` multiple times against the same HTML files is safe. The SHA1 hash deduplication ensures previously imported rows are silently skipped without creating duplicates.
+</Tip>

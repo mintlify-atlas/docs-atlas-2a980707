@@ -1,0 +1,113 @@
+---
+title: "Batch-Fetch Full UZSE Trade History (2018–2026)"
+sidebarTitle: "Batch Fetch"
+description: "Use the cross-platform fetch scripts to download and import the complete UZSE trade history month-by-month from February 2018 through April 2026."
+---
+
+Downloading eight years of UZSE trade data one month at a time by hand would require running over 200 pairs of commands. The batch fetch scripts automate this entirely — they loop through every calendar month from **February 2018 through April 2026** for symbol `UZ7011340005`, calling `download-trades.ts` followed immediately by `import-trades.ts` for each month before moving on to the next. Both a Linux/macOS shell script and a Windows batch file are provided so the process works on any platform.
+
+## Available Scripts
+
+| Script | Platform |
+|---|---|
+| `scripts/linux/fetch.sh` | Linux / macOS |
+| `scripts/win/fetch.bat` | Windows |
+
+Both scripts cover the same date range and symbol and are functionally identical — only the shell syntax differs.
+
+## Usage
+
+<CodeGroup>
+
+```bash Linux
+chmod +x scripts/linux/fetch.sh
+./scripts/linux/fetch.sh
+```
+
+```bat Windows
+scripts\win\fetch.bat
+```
+
+</CodeGroup>
+
+Run the appropriate script from the **project root directory**. The Linux script uses `cd "$(dirname "$0")/../.."` at startup to ensure it always runs from the correct location regardless of where it is invoked.
+
+## How the Scripts Are Structured
+
+Each script is a sequential list of paired `download` + `import` calls, one pair per calendar month. Here is how the opening section of `fetch.sh` looks:
+
+```bash
+#!/bin/bash
+cd "$(dirname "$0")/../.."
+
+npx -y tsx scripts/download-trades.ts UZ7011340005 08.02.2018 28.02.2018
+npx -y tsx scripts/import-trades.ts
+
+npx -y tsx scripts/download-trades.ts UZ7011340005 01.03.2018 31.03.2018
+npx -y tsx scripts/import-trades.ts
+
+npx -y tsx scripts/download-trades.ts UZ7011340005 01.04.2018 30.04.2018
+npx -y tsx scripts/import-trades.ts
+```
+
+The pattern repeats for every month through to:
+
+```bash
+npx -y tsx scripts/download-trades.ts UZ7011340005 01.04.2026 20.04.2026
+npx -y tsx scripts/import-trades.ts
+```
+
+Note that the first entry starts on **08.02.2018** (the earliest available UZSE trade record for this symbol) and the last entry ends on **20.04.2026** rather than the 30th.
+
+Each `download-trades.ts` call saves HTML pages to `tmp/`, then `import-trades.ts` immediately reads and inserts them before deleting the HTML files — keeping disk usage low throughout the run.
+
+<Warning>
+  The full history run takes significant time. Each monthly batch may span many paginated pages, and the download script retries timed-out pages up to 10 times with a 30-second delay between attempts. Plan for the script to run for several hours on a typical connection, and do not interrupt it mid-run — the month-by-month structure and SHA1 deduplication mean you can safely resume by re-running the script; already-imported records will be skipped automatically.
+</Warning>
+
+## Generating Custom Date-Range Scripts
+
+If you need a different symbol, different start/end dates, or want to regenerate the fetch scripts after updating the date range, use the **Parser Sequence Script** from the README. Paste this into a Node.js REPL or a `.js` file and run it with `node`:
+
+```javascript
+const lines = ['#!/bin/bash', 'cd \\"\\$(dirname \\"\\$0\\")/../..\\\"', ''];
+const start = new Date(2018, 1, 1);
+const end = new Date(2026, 3, 1);
+let d = new Date(start);
+while (d <= end) {
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  const isFirstMonth = (y === 2018 && m === 1);
+  const isLastMonth  = (y === 2026 && m === 3);
+  const beginDay = isFirstMonth ? '08' : '01';
+  const lastDay  = new Date(y, m + 1, 0).getDate();
+  const endDay   = isLastMonth ? '20' : lastDay;
+  const mm = String(m + 1).padStart(2, '0');
+  const beginStr = String(beginDay).padStart(2,'0') + '.' + mm + '.' + y;
+  const endStr   = String(endDay).padStart(2,'0')   + '.' + mm + '.' + y;
+  lines.push('npx -y tsx scripts/download-trades.ts UZ7011340005 ' + beginStr + ' ' + endStr);
+  lines.push('npx -y tsx scripts/import-trades.ts');
+  lines.push('');
+  d.setMonth(m + 1);
+}
+require('fs').mkdirSync('./scripts/linux', { recursive: true });
+require('fs').writeFileSync('./scripts/linux/fetch.sh', lines.join('\n'), 'utf8');
+console.log('Done, lines:', lines.length);
+```
+
+Modify the `start`, `end`, or the ISIN string in the `lines.push` calls to target a different symbol or period, then adapt the output for Windows `.bat` syntax if needed.
+
+<Tip>
+  Once the batch import completes, proceed directly to `build-candles.ts`. The candle builder reads from the `trade-results` collection that the batch scripts populated, so no additional steps are needed between the two.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Build OHLCV Candlesticks" icon="chart-candlestick" href="/guides/build-candles">
+    Aggregate all imported trades into continuous OHLCV candlestick series across 11 timeframes.
+  </Card>
+  <Card title="Open the Editor" icon="code" href="/guides/editor">
+    Launch the backtest-kit editor and run Pine Script indicators against your UZSE candle data.
+  </Card>
+</CardGroup>

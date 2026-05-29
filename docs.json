@@ -1,72 +1,90 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mintlify Starter Kit",
+  "name": "UZSE Backtest App",
+  "theme": "luma",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
-  },
-  "favicon": "/favicon.svg",
-  "navigation": {
-    "pages": [
-      {
-        "group": "Getting Started",
-        "pages": [
-          "index",
-          "quickstart"
-        ]
-      }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "primary": "#1A7FDB",
+    "light": "#EAF4FF",
+    "dark": "#0D3F70"
   },
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
     "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://app.mintlify.com"
+      "type": "github",
+      "href": "https://github.com/backtest-kit/uzse-backtest-app"
     }
-  },
-  "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
-      "mcp",
-      "cursor",
-      "vscode"
-    ]
   },
   "footer": {
     "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
+      "github": "https://github.com/backtest-kit/uzse-backtest-app"
     }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guide",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Data Pipeline",
+            "pages": [
+              "guides/download-trades",
+              "guides/import-trades",
+              "guides/build-candles",
+              "guides/batch-fetch"
+            ]
+          },
+          {
+            "group": "Analysis",
+            "pages": [
+              "guides/editor",
+              "guides/pine-script",
+              "guides/check-gaps"
+            ]
+          },
+          {
+            "group": "Infrastructure",
+            "pages": [
+              "guides/mongodb",
+              "guides/docker-services",
+              "guides/configuration"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Scripts",
+            "pages": [
+              "reference/download-trades",
+              "reference/import-trades",
+              "reference/build-candles",
+              "reference/check-gaps"
+            ]
+          },
+          {
+            "group": "Data Schemas",
+            "pages": [
+              "reference/trade-schema",
+              "reference/candle-schema"
+            ]
+          },
+          {
+            "group": "Modules",
+            "pages": [
+              "reference/exchange-module",
+              "reference/candle-algorithm"
+            ]
+          }
+        ]
+      }
+    ]
   }
 }

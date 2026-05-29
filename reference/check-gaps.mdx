@@ -1,0 +1,70 @@
+---
+title: "check-gaps.ts — Trading Day Gap Detector"
+sidebarTitle: "check-gaps"
+description: "CLI reference for check-gaps.ts: scans the trade-results collection and reports all calendar days with no trade activity between the first and last trading dates."
+---
+
+`check-gaps.ts` is a diagnostic utility that inspects the `trade-results` MongoDB collection and identifies every calendar day between the first and last recorded trade dates that has no trade activity. Each missing day is printed with its date and Russian day-of-week abbreviation, making it easy to distinguish expected weekend gaps from unexpected weekday halts such as exchange holidays or trading suspensions.
+
+## Synopsis
+
+```bash
+npx tsx scripts/check-gaps.ts
+```
+
+<Info>
+  This script takes no arguments. It operates on whatever data is currently present in the `trade-results` collection.
+</Info>
+
+## Behavior
+
+The script performs the following steps:
+
+1. **Connects to MongoDB** — uses the `MONGO_URI` environment variable configured in `config/setup.ts`.
+2. **Queries all trade timestamps** — fetches the `time` field for every document in `trade-results` (projection `{ time: 1 }`).
+3. **Extracts unique calendar dates** — converts each timestamp to a `YYYY-MM-DD` key and collects unique values into a `Set`.
+4. **Walks the full date range** — iterates from the earliest to the latest trading date, one calendar day at a time.
+5. **Reports missing dates** — any date absent from the set is appended to the missing list, annotated with its Russian day-of-week abbreviation.
+
+## Day-of-Week Labels
+
+Missing dates are labelled using the following Russian abbreviations (taken from the `DOW` array in source):
+
+| Abbreviation | Day       |
+|--------------|-----------|
+| `Вс`         | Sunday    |
+| `Пн`         | Monday    |
+| `Вт`         | Tuesday   |
+| `Ср`         | Wednesday |
+| `Чт`         | Thursday  |
+| `Пт`         | Friday    |
+| `Сб`         | Saturday  |
+
+## Example Output
+
+```
+Trading days in DB: 247
+Missing days (18):
+  2023-08-12 (Сб)
+  2023-08-13 (Вс)
+  2023-08-14 (Пн)
+  2023-08-15 (Вт)
+```
+
+## MongoDB
+
+| Setting    | Value                                    |
+|------------|------------------------------------------|
+| Database   | `backtest`                               |
+| Collection | `trade-results`                          |
+| Connection | `MONGO_URI` env var (default: `mongodb://localhost:27017/backtest`) |
+
+## Interpreting Results
+
+<Note>
+  Missing **weekend** dates (`Сб`, `Вс`) are expected — the UZSE does not trade on weekends. Missing **weekday** dates (`Пн`–`Пт`) indicate public holidays, exchange closures, or trading halts that should be verified against the official UZSE calendar.
+</Note>
+
+<Tip>
+  The `build-candles.ts` script fills all detected gaps automatically. Every missing minute — including entire gap days — is represented in `candle-items` as a flat candle with `open = high = low = close = lastClose` and `volume = 0`. Running `check-gaps.ts` before `build-candles.ts` gives you a clear picture of how much gap-fill data will be generated.
+</Tip>

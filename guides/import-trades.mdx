@@ -1,0 +1,109 @@
+---
+title: "Importing UZSE Trades into MongoDB"
+sidebarTitle: "Import Trades"
+description: "Parse downloaded HTML trade pages, extract structured trade records, and insert them into MongoDB with SHA1-based deduplication."
+---
+
+`import-trades.ts` is the second step in the data pipeline. It reads every `trades_page_*.html` file that `download-trades.ts` saved in `tmp/`, parses the HTML trade tables using regex, and inserts each row as a structured document into the `trade-results` MongoDB collection. A SHA1 hash derived from each row's content acts as a unique key so the script is fully idempotent — re-running it never creates duplicates.
+
+## How It Works
+
+### Reading HTML Pages
+
+The script scans `tmp/` for files matching `trades_page_*.html` and sorts them numerically (page 1 before page 2, and so on). If no matching files exist the script exits with an error, so always run `download-trades.ts` first.
+
+### Parsing Trade Table Rows
+
+Each file's HTML is walked with a `<tr>` regex. For every row the script extracts the inner text of each `<td>`, strips HTML tags, and collapses whitespace. Rows with fewer than 10 cells are skipped (headers, footers, empty rows).
+
+The ten fields extracted per row map directly to `ITradeDto`:
+
+| Field | Description |
+|---|---|
+| `time` | Trade timestamp — parsed from Russian locale text (see below) |
+| `symbol` | ISIN code of the security, e.g. `UZ7011340005` |
+| `issuer` | Issuer name, e.g. `<Hamkorbank> ATB` |
+| `securityType` | Security type, e.g. `Простые акции` (common shares) |
+| `market` | Market sector, e.g. `STK`, `BON` |
+| `platform` | Trading session, e.g. `G1`, `G2` |
+| `tradePrice` | Price per security in the trade |
+| `quantity` | Number of securities traded |
+| `volume` | Total trade value in UZS (`tradePrice × quantity`) |
+| `hash` | SHA1 deduplication key (generated, not parsed from HTML) |
+
+### Russian Date Parsing
+
+UZSE renders timestamps in Russian locale. The script contains a full month-name lookup table and parses strings in the format:
+
+```
+17 апреля 2026, 16:02
+```
+
+All twelve Russian genitive month names are handled (`января` through `декабря`), producing a UTC `Date` object for each trade.
+
+### SHA1 Deduplication
+
+Before inserting a row the script computes a SHA1 hash over the concatenated string:
+
+```
+symbol | time.toISOString() | tradePrice | quantity | volume | pageIndex | rowIndex | urlKey
+```
+
+where `urlKey` is derived from the `begin`, `end`, and `search_key` query parameters embedded in the page HTML. This hash is stored as the `hash` field and is backed by a `unique` index in MongoDB — any document with an already-seen hash is rejected with error code `11000` (duplicate key) and counted as skipped rather than inserted.
+
+## Usage
+
+```bash
+npx tsx scripts/import-trades.ts
+```
+
+The script takes no arguments. It automatically reads all `trades_page_*.html` files from `tmp/`.
+
+## Idempotency
+
+Running `import-trades.ts` more than once against the same HTML files is safe. The console output at the end of every run reports both counters:
+
+```
+Done. Inserted: 342, skipped (duplicates): 0
+```
+
+On a re-run over already-imported data:
+
+```
+Done. Inserted: 0, skipped (duplicates): 342
+```
+
+<Note>
+  After all pages have been processed, the script automatically deletes every `.html` file from `tmp/` and prints `Tmp cleaned.` — so you will not be able to re-import from the same downloaded files without re-running `download-trades.ts`.
+</Note>
+
+## MongoDB Collection
+
+Imported trade documents are stored in the **`trade-results`** collection. Each document has the following structure (from `Trade.schema.ts`):
+
+```typescript
+{
+  time:         Date,    // trade timestamp
+  symbol:       string,  // ISIN code
+  issuer:       string,  // issuer name
+  securityType: string,  // e.g. "Простые акции"
+  market:       string,  // e.g. "STK"
+  platform:     string,  // e.g. "G1"
+  tradePrice:   number,
+  quantity:     number,
+  volume:       number,  // UZS
+  hash:         string,  // unique SHA1 key
+}
+```
+
+Indexed fields: `time`, `symbol`, and a compound `{ symbol, time }` index for efficient range queries. The `hash` field carries a `unique` index.
+
+<Tip>
+  Always run `download-trades.ts` immediately before `import-trades.ts` for the same date range. The batch scripts (`fetch.sh` / `fetch.bat`) pair every download with an import automatically, which is the recommended workflow for large history imports.
+</Tip>
+
+## Next Step
+
+<Card title="Build OHLCV Candlesticks" icon="chart-candlestick" href="/guides/build-candles">
+  Aggregate all imported trades into continuous OHLCV candlestick series across 11 timeframes, with automatic gap-filling for intraday minutes and non-trading days.
+</Card>

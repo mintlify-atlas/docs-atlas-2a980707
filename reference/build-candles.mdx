@@ -1,0 +1,105 @@
+---
+title: "build-candles.ts — OHLCV Candlestick Builder"
+sidebarTitle: "build-candles"
+description: "CLI reference for build-candles.ts: aggregates raw trades into OHLCV candles across 11 timeframes with continuous gap-filling. Writes to candle-items collection."
+---
+
+`build-candles.ts` reads raw trade records from the `trade-results` MongoDB collection and aggregates them into OHLCV (Open, High, Low, Close, Volume) candlestick documents across 11 timeframes simultaneously. The script processes trades one calendar day at a time, fills every minute of each day with gap candles (carrying the previous close forward at zero volume), and writes the resulting documents to the `candle-items` collection. Re-running the script is safe — the unique compound index `{symbol, interval, timestamp}` causes duplicate candles to be silently skipped.
+
+## Synopsis
+
+```bash
+npx tsx scripts/build-candles.ts <symbol> <isin>
+```
+
+## Parameters
+
+<ParamField path="symbol" type="string" required>
+  Display ticker written into the `candle-items` collection, e.g. `HMKB`. This is the human-readable name used by charting consumers and does not need to match the ISIN.
+</ParamField>
+
+<ParamField path="isin" type="string" required>
+  ISIN code used to look up trade records in `trade-results`, e.g. `UZ7011340005`. Must match the `symbol` field stored by `import-trades.ts`.
+</ParamField>
+
+## Supported Timeframes
+
+All 11 timeframes from the `TIMEFRAMES` constant are built in a single pass per day:
+
+| Interval | Minutes |
+|----------|---------|
+| `1m`     | 1       |
+| `3m`     | 3       |
+| `5m`     | 5       |
+| `15m`    | 15      |
+| `30m`    | 30      |
+| `1h`     | 60      |
+| `2h`     | 120     |
+| `4h`     | 240     |
+| `6h`     | 360     |
+| `8h`     | 480     |
+| `1d`     | 1440    |
+
+## Algorithm
+
+The script processes data day by day from the first to the last trade date:
+
+1. **Load trades** — queries `trade-results` for all records matching the given ISIN within the current day's UTC boundary (`00:00:00` to `23:59:59`), sorted by `time` ascending.
+2. **Build 1m buckets** — aggregates all trades into a `minuteMap` keyed by the UTC minute timestamp produced by `floorToMin(ts, 1)`.
+3. **Walk every minute** — iterates every millisecond-aligned minute from `dayStartMs` to `dayStartMs + DAY_MS` (1 440 steps). For each minute:
+   - If a real trade bucket exists, uses its OHLCV and updates `lastClose`.
+   - Otherwise emits a gap candle: `open = high = low = close = lastClose`, `volume = 0`.
+4. **Accumulate higher timeframes** — each 1m candle is simultaneously folded into all 11 timeframe accumulators using `floorToMin(ts, minutes)` to align bucket boundaries.
+5. **Insert batch** — flattens all accumulated candle documents for the day and calls `CandleModel.insertMany` with `ordered: false`, allowing partial inserts when some candles already exist.
+
+## OHLCV Aggregation Rules
+
+| Field    | Rule                                  |
+|----------|---------------------------------------|
+| `open`   | Price of the first trade in the period |
+| `high`   | Maximum trade price in the period      |
+| `low`    | Minimum trade price in the period      |
+| `close`  | Price of the last trade in the period  |
+| `volume` | Sum of all trade quantities            |
+
+<Note>
+  Gap candles (minutes with no trades) carry `open = high = low = close = lastClose` and `volume = 0`. This ensures every timeframe has fully contiguous series with no missing bars, which is required by most charting libraries.
+</Note>
+
+## MongoDB
+
+| Setting       | Value                                                           |
+|---------------|-----------------------------------------------------------------|
+| Database      | `backtest`                                                      |
+| Source collection | `trade-results`                                             |
+| Target collection | `candle-items`                                              |
+| Unique index  | `{ symbol, interval, timestamp }` — re-runs skip existing candles |
+| Insert mode   | `insertMany` with `ordered: false` (partial inserts on duplicates) |
+
+## Progress Output
+
+The script prints a live-updating line for each day processed:
+
+```
+[day/total] date  trades:N  real_min:N  candles:N  inserted:N  skipped:N
+```
+
+For example:
+
+```
+[1/312] 2023-01-03  trades:27  real_min:19  candles:3014  inserted:3014  skipped:0
+[2/312] 2023-01-04  trades:0   real_min:0   candles:3014  inserted:3014  skipped:0
+[312/312] 2025-12-31  trades:41  real_min:33  candles:3014  inserted:3014  skipped:0
+
+Done. Inserted: 941182, skipped (duplicates): 0
+```
+
+## Example
+
+```bash
+npx tsx scripts/build-candles.ts HMKB UZ7011340005
+```
+
+<Tip>
+  Because candle inserts use `ordered: false`, you can safely re-run `build-candles.ts` after importing additional trades. Only new candles (those whose `{symbol, interval, timestamp}` key does not yet exist) will be inserted — all others are skipped without error.
+</Tip>

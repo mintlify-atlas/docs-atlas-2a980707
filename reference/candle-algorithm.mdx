@@ -1,0 +1,160 @@
+---
+title: "Candle Building Algorithm Reference"
+sidebarTitle: "Candle Algorithm"
+description: "Detailed reference for the 5-step OHLCV aggregation algorithm used by build-candles.ts, covering minute bucketing, gap-filling, higher timeframe rollup, and idempotency."
+---
+
+`build-candles.ts` implements a deterministic 5-step algorithm for generating continuous OHLCV candle series from raw trade data stored in the `trade-results` collection. Given a display ticker and its corresponding ISIN, the script produces gap-free candle series for all eleven supported timeframes in a single pass and writes them to the `candle-items` collection. Because the algorithm processes one calendar day at a time and relies on a unique compound index for duplicate rejection, it is both memory-efficient and safe to re-run at any time without corrupting existing data.
+
+## Usage
+
+```bash
+npx tsx scripts/build-candles.ts [symbol] [isin]
+# Example:
+npx tsx scripts/build-candles.ts HMKB UZ7011340005
+```
+
+`symbol` is the short display ticker written to `candle-items`; `isin` is the ISIN code used to query `trade-results`. Both arguments default to `HMKB` / `UZ7011340005` if omitted.
+
+---
+
+## Algorithm Overview
+
+<Steps>
+
+### Step 1 — Aggregate Real Minutes
+
+Trades for the current calendar day are loaded from MongoDB and bucketed into 1-minute intervals using the `floorToMin` helper, which floors any millisecond timestamp to the nearest multiple of `minutes × 60,000 ms`:
+
+```typescript
+function floorToMin(tsMs: number, minutes: number): number {
+  const stepMs = minutes * MIN_MS;
+  return Math.floor(tsMs / stepMs) * stepMs;
+}
+```
+
+Within each 1-minute bucket the aggregation rules are:
+
+| Field    | Value                                      |
+| -------- | ------------------------------------------ |
+| `open`   | Price of the **first** trade in the bucket |
+| `high`   | **Maximum** price across all trades        |
+| `low`    | **Minimum** price across all trades        |
+| `close`  | Price of the **last** trade in the bucket  |
+| `volume` | **Sum** of `quantity` across all trades    |
+
+Results are stored in a `Map<number, OHLCV>` keyed by the floored timestamp.
+
+### Step 2 — Fill Intraday Gaps
+
+The algorithm iterates over every minute of the calendar day — from `00:00:00 UTC` to `23:59:00 UTC` (1440 steps of `MIN_MS = 60,000 ms`). For each minute:
+
+- If a real trade bucket exists for that timestamp, it is used as-is and `lastClose` is updated to its `close` price.
+- If **no** trades occurred in that minute, a synthetic candle is created: `open = high = low = close = lastClose`, `volume = 0`.
+
+This guarantees that after Step 2 every minute of the trading day has exactly one entry in the in-memory series, regardless of how sparse the actual trade activity was.
+
+<Info>
+  `lastClose` is initialised to the `tradePrice` of the very first trade record in the entire date range, and is then carried forward across both intraday gaps and non-trading days.
+</Info>
+
+### Step 3 — Fill Non-Trading Days
+
+When the outer day loop encounters a day that has **zero** trades (a weekend, public holiday, or exchange closure), the trade query returns an empty array. The algorithm still walks all 1440 minutes of that day and fills them with `open = high = low = close = lastClose`, `volume = 0`, using the closing price carried over from the last day that had real trades.
+
+This ensures the final candle series is truly continuous from the first to the last trading day in the dataset — there are no gaps at the day boundary that would confuse Pine Script indicators or `backtest-kit` strategy runners.
+
+### Step 4 — Aggregate Higher Timeframes
+
+All eleven timeframes are built **simultaneously** from the gap-filled 1-minute series produced in Steps 2 and 3. For each timeframe `T` the algorithm groups 1-minute candles by flooring their timestamp to the nearest `T`-minute boundary using the same `floorToMin` function:
+
+```typescript
+const tfTs = floorToMin(ts, minutes); // e.g. minutes = 60 for "1h"
+```
+
+Aggregation per higher-timeframe period follows the same OHLCV rules as Step 1:
+
+| Field    | Value                                           |
+| -------- | ----------------------------------------------- |
+| `open`   | `open` of the **first** 1m candle in the period |
+| `high`   | **Maximum** `high` across all 1m candles        |
+| `low`    | **Minimum** `low` across all 1m candles         |
+| `close`  | `close` of the **last** 1m candle in the period |
+| `volume` | **Sum** of `volume` across all 1m candles       |
+
+The eleven accumulators (`Map<number, OHLCV>`) are updated inside the same loop that walks the 1-minute series, so the entire rollup for all timeframes is completed in a single O(1440) pass per day.
+
+**Supported timeframes and their minute counts:**
+
+| Interval | Minutes |
+| -------- | ------- |
+| `1m`     | 1       |
+| `3m`     | 3       |
+| `5m`     | 5       |
+| `15m`    | 15      |
+| `30m`    | 30      |
+| `1h`     | 60      |
+| `2h`     | 120     |
+| `4h`     | 240     |
+| `6h`     | 360     |
+| `8h`     | 480     |
+| `1d`     | 1440    |
+
+### Step 5 — Idempotent Batch Insert
+
+All candle documents produced for the current day are flattened into a single array and written to MongoDB in one call:
+
+```typescript
+await CandleModel.insertMany(docs, { ordered: false });
+```
+
+The `ordered: false` option instructs MongoDB to continue inserting remaining documents even when it encounters a duplicate key. The unique compound index `{ symbol, interval, timestamp }` rejects any document that already exists in the collection with error code `11000`. The `insertBatch` helper catches this error and extracts `insertedCount` from the error result, returning `{ inserted, skipped }` counts rather than propagating the exception.
+
+```typescript
+async function insertBatch(docs: object[]): Promise<{ inserted: number; skipped: number }> {
+  if (docs.length === 0) return { inserted: 0, skipped: 0 };
+  try {
+    const res = await CandleModel.insertMany(docs, { ordered: false });
+    return { inserted: res.length, skipped: 0 };
+  } catch (e: any) {
+    const inserted = e.result?.insertedCount ?? 0;
+    return { inserted, skipped: docs.length - inserted };
+  }
+}
+```
+
+Re-running `build-candles.ts` on a symbol that has already been fully processed will result in `inserted: 0, skipped: <total>` — all documents are rejected as duplicates and the collection is left unchanged.
+
+</Steps>
+
+---
+
+## Day-by-Day Processing
+
+The outer loop increments one calendar day at a time from the UTC date of the earliest trade to the UTC date of the latest trade. Only the trades belonging to the current day are loaded from MongoDB in each iteration, capping peak memory usage to the volume of a single day's trades regardless of the total dataset size.
+
+```
+Range: 2026-01-02 — 2026-04-17 (106 days)
+[1/106] 2026-01-02  trades:847  real_min:312  candles:2112  inserted:2112  skipped:0
+[2/106] 2026-01-03  trades:0    real_min:0    candles:1440  inserted:1440  skipped:0   ← gap day
+...
+```
+
+<Tip>
+  The progress line is written with `\r` (carriage return) so it overwrites itself in place. The final summary line reports total `inserted` and `skipped (duplicates)` counts across all days.
+</Tip>
+
+## Timestamp Storage
+
+All `timestamp` values are stored as **milliseconds** since the Unix epoch (`Date.getTime()` convention). The `1d` candle for a given UTC date has `timestamp` equal to the midnight boundary of that date in milliseconds:
+
+```typescript
+const dayStartMs = startDay.getTime() + d * DAY_MS;
+// e.g. 2026-04-17T00:00:00.000Z → 1744848000000
+```
+
+To reconstruct the date from a stored timestamp:
+
+```typescript
+new Date(1744848000000).toISOString(); // "2026-04-17T00:00:00.000Z"
+```
