@@ -1,7 +1,7 @@
 ---
-title: "Batch-Fetch Full UZSE Trade History (2018–2026)"
+title: "Batch Fetch the Full UZSE Trade History from 2018 to 2026"
 sidebarTitle: "Batch Fetch"
-description: "Use the cross-platform fetch scripts to download and import the complete UZSE trade history month-by-month from February 2018 through April 2026."
+description: "Automate the full UZSE trade history download month-by-month from February 2018 through April 2026 using the cross-platform fetch shell scripts."
 ---
 
 Downloading eight years of UZSE trade data one month at a time by hand would require running over 200 pairs of commands. The batch fetch scripts automate this entirely — they loop through every calendar month from **February 2018 through April 2026** for symbol `UZ7011340005`, calling `download-trades.ts` followed immediately by `import-trades.ts` for each month before moving on to the next. Both a Linux/macOS shell script and a Windows batch file are provided so the process works on any platform.

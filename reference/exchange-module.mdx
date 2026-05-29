@@ -1,7 +1,7 @@
 ---
 title: "Exchange Module — Connecting MongoDB to backtest-kit"
 sidebarTitle: "Exchange Module"
-description: "Reference for the addExchangeSchema adapter that registers MongoDB candle data as a backtest-kit exchange source, enabling Pine Script analysis on UZSE data."
+description: "Reference for the addExchangeSchema adapter that connects MongoDB candle data to backtest-kit for Pine Script backtesting on UZSE data."
 ---
 
 The exchange module bridges the MongoDB candle storage layer and the `backtest-kit` framework by registering a custom exchange adapter named `"mongo-exchange"`. Once registered, `backtest-kit` can query UZSE candlestick data stored in the `candle-items` collection using the same interface it would use against any live exchange — enabling Pine Script strategy backtesting and chart analysis entirely from local data without external API calls.

@@ -1,7 +1,7 @@
 ---
-title: "Candle Schema — candle-items MongoDB Collection"
+title: "Candle Schema — candle-items Collection Reference"
 sidebarTitle: "Candle Schema"
-description: "Mongoose schema and TypeScript interface for OHLCV candlestick records in the candle-items collection, including supported timeframe intervals and the unique composite index."
+description: "Mongoose schema and TypeScript types for OHLCV candlestick records, including supported timeframe intervals and the unique composite index."
 ---
 
 `CandleModel` is the Mongoose model that stores pre-aggregated OHLCV (Open / High / Low / Close / Volume) candlestick records in the `candle-items` collection of the `backtest` database. Documents are produced by the `build-candles.ts` script, which reads raw trade data from `trade-results` and materialises continuous candle series for all eleven supported timeframes simultaneously. A unique compound index on `{ symbol, interval, timestamp }` makes every write idempotent — re-running the build script never corrupts existing data.

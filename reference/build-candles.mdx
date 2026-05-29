@@ -1,7 +1,7 @@
 ---
-title: "build-candles.ts — OHLCV Candlestick Builder"
+title: "build-candles.ts — Multi-Timeframe OHLCV Candle Builder"
 sidebarTitle: "build-candles"
-description: "CLI reference for build-candles.ts: aggregates raw trades into OHLCV candles across 11 timeframes with continuous gap-filling. Writes to candle-items collection."
+description: "CLI reference for build-candles.ts: aggregates raw trades into OHLCV candles across 11 timeframes with gap-filling. Writes to candle-items collection."
 ---
 
 `build-candles.ts` reads raw trade records from the `trade-results` MongoDB collection and aggregates them into OHLCV (Open, High, Low, Close, Volume) candlestick documents across 11 timeframes simultaneously. The script processes trades one calendar day at a time, fills every minute of each day with gap candles (carrying the previous close forward at zero volume), and writes the resulting documents to the `candle-items` collection. Re-running the script is safe — the unique compound index `{symbol, interval, timestamp}` causes duplicate candles to be silently skipped.
@@ -9,16 +9,16 @@ description: "CLI reference for build-candles.ts: aggregates raw trades into OHL
 ## Synopsis
 
 ```bash
-npx tsx scripts/build-candles.ts <symbol> <isin>
+npx tsx scripts/build-candles.ts [symbol] [isin]
 ```
 
 ## Parameters
 
-<ParamField path="symbol" type="string" required>
+<ParamField path="symbol" type="string" default="HMKB">
   Display ticker written into the `candle-items` collection, e.g. `HMKB`. This is the human-readable name used by charting consumers and does not need to match the ISIN.
 </ParamField>
 
-<ParamField path="isin" type="string" required>
+<ParamField path="isin" type="string" default="UZ7011340005">
   ISIN code used to look up trade records in `trade-results`, e.g. `UZ7011340005`. Must match the `symbol` field stored by `import-trades.ts`.
 </ParamField>
 

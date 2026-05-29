@@ -1,7 +1,7 @@
 ---
 title: "import-trades.ts — HTML Trade Parser and MongoDB Importer"
 sidebarTitle: "import-trades"
-description: "CLI reference for import-trades.ts: parses HTML trade tables from tmp/, extracts trade records, deduplicates via SHA1 hash, and inserts into MongoDB trade-results collection."
+description: "CLI reference for import-trades.ts: parses HTML trade tables from tmp/, deduplicates rows via SHA1 hash, and inserts records into MongoDB trade-results."
 ---
 
 `import-trades.ts` is the second step in the data-ingestion pipeline. It reads all `trades_page_*.html` files written by `download-trades.ts`, parses each HTML trade table using regex-based extraction, builds a SHA1 deduplication hash for every row, and upserts records into the MongoDB `trade-results` collection. Rows already present in the database (identified by hash collision code `11000`) are silently skipped. After processing, all HTML files are deleted from `tmp/`.
@@ -23,7 +23,7 @@ The script performs the following steps in order:
 1. **Reads and sorts files** — scans `tmp/` for files matching `trades_page_*.html` and sorts them numerically by page number.
 2. **Parses HTML tables** — for each file, iterates over `<tr>` elements using a regex, extracts `<td>` cell text (stripping inner tags), and skips rows with fewer than 10 cells.
 3. **Parses Russian-format datetimes** — converts date strings such as `"17 апреля 2026, 16:02"` to JavaScript `Date` objects using the Russian month name lookup table.
-4. **Generates SHA1 hash** — computes a deduplication key from the concatenation: `symbol|time|tradePrice|quantity|volume|pageIndex|rowIndex|queryParams`.
+4. **Generates SHA1 hash** — computes a deduplication key from the concatenation: `symbol|time|tradePrice|quantity|volume|pageIndex|rowIndex|urlKey`.
 5. **Inserts to MongoDB** — calls `TradeModel.create()` for each row. On duplicate key error (code `11000`) the row is counted as skipped; any other error is logged.
 6. **Cleans up `tmp/`** — deletes all `.html` files from `tmp/` after all files have been processed.
 

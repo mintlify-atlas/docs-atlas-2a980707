@@ -1,7 +1,7 @@
 ---
-title: "Candle Building Algorithm Reference"
+title: "Candle Building Algorithm — build-candles.ts Reference"
 sidebarTitle: "Candle Algorithm"
-description: "Detailed reference for the 5-step OHLCV aggregation algorithm used by build-candles.ts, covering minute bucketing, gap-filling, higher timeframe rollup, and idempotency."
+description: "Reference for the 5-step OHLCV aggregation algorithm in build-candles.ts: minute bucketing, gap-filling, timeframe rollup, and idempotent inserts."
 ---
 
 `build-candles.ts` implements a deterministic 5-step algorithm for generating continuous OHLCV candle series from raw trade data stored in the `trade-results` collection. Given a display ticker and its corresponding ISIN, the script produces gap-free candle series for all eleven supported timeframes in a single pass and writes them to the `candle-items` collection. Because the algorithm processes one calendar day at a time and relies on a unique compound index for duplicate rejection, it is both memory-efficient and safe to re-run at any time without corrupting existing data.
@@ -133,10 +133,10 @@ Re-running `build-candles.ts` on a symbol that has already been fully processed 
 
 The outer loop increments one calendar day at a time from the UTC date of the earliest trade to the UTC date of the latest trade. Only the trades belonging to the current day are loaded from MongoDB in each iteration, capping peak memory usage to the volume of a single day's trades regardless of the total dataset size.
 
-```
+```text
 Range: 2026-01-02 — 2026-04-17 (106 days)
-[1/106] 2026-01-02  trades:847  real_min:312  candles:2112  inserted:2112  skipped:0
-[2/106] 2026-01-03  trades:0    real_min:0    candles:1440  inserted:1440  skipped:0   ← gap day
+[1/106] 2026-01-02  trades:847  real_min:312  candles:2402  inserted:2402  skipped:0
+[2/106] 2026-01-03  trades:0    real_min:0    candles:2402  inserted:2402  skipped:0   ← gap day
 ...
 ```
 

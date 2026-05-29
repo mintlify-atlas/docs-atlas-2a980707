@@ -1,7 +1,7 @@
 ---
-title: "Trade Schema — trade-results MongoDB Collection"
+title: "Trade Schema — trade-results Collection Reference"
 sidebarTitle: "Trade Schema"
-description: "Mongoose schema and TypeScript interface for UZSE trade records in the trade-results collection, including field types, indexes, and the SHA1 deduplication hash."
+description: "Mongoose schema and TypeScript types for UZSE trade records, including field definitions, indexes, and the SHA1 deduplication hash formula."
 ---
 
 `TradeModel` is the Mongoose model that stores every raw trade record fetched from the UZSE exchange API. Each document represents a single executed transaction and is persisted in the `trade-results` collection of the `backtest` database. The schema is designed for idempotent imports: a SHA1 `hash` field carries a fingerprint of the trade's key attributes, and a unique index on that field prevents duplicate records from being written no matter how many times the same data is collected.
@@ -100,20 +100,20 @@ interface ITradeDto {
 
 The `hash` field is computed at import time from the following pipe-delimited concatenation of trade attributes and pagination context:
 
-```
-SHA1(symbol | time.toISOString() | tradePrice | quantity | volume | pageIndex | rowIndex | queryKey)
+```text
+SHA1(symbol | time.toISOString() | tradePrice | quantity | volume | pageIndex | rowIndex | urlKey)
 ```
 
-Including `pageIndex`, `rowIndex`, and `queryKey` ensures that two trades with identical prices, quantities, and timestamps appearing at different positions in the API response still produce distinct hashes, which correctly prevents false-positive deduplication.
+Including `pageIndex`, `rowIndex`, and `urlKey` ensures that two trades with identical prices, quantities, and timestamps appearing at different positions in the API response still produce distinct hashes, which correctly prevents false-positive deduplication.
 
 <Note>
-  `queryKey` encodes the query parameters used to fetch the page (e.g. date range and search key), making the hash stable across re-runs with the same request parameters.
+  `urlKey` encodes the query parameters used to fetch the page — specifically `begin|end|search_key` extracted from the page URL — making the hash stable across re-runs with the same request parameters.
 </Note>
 
 ## Import
 
 ```typescript
-import { TradeModel, ITradeDto, ITradeRow } from "../schema/Trade.schema";
+import { TradeModel, ITradeDto, TradeDocument, ITradeRow } from "../schema/Trade.schema";
 ```
 
 ## Example Document

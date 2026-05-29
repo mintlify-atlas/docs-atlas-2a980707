@@ -1,7 +1,7 @@
 ---
-title: "Importing UZSE Trades into MongoDB"
+title: "Import UZSE Trade Results into MongoDB with Deduplication"
 sidebarTitle: "Import Trades"
-description: "Parse downloaded HTML trade pages, extract structured trade records, and insert them into MongoDB with SHA1-based deduplication."
+description: "Parse downloaded HTML trade pages, extract all 10 structured trade fields per row, and insert records into MongoDB with SHA1-based deduplication."
 ---
 
 `import-trades.ts` is the second step in the data pipeline. It reads every `trades_page_*.html` file that `download-trades.ts` saved in `tmp/`, parses the HTML trade tables using regex, and inserts each row as a structured document into the `trade-results` MongoDB collection. A SHA1 hash derived from each row's content acts as a unique key so the script is fully idempotent — re-running it never creates duplicates.

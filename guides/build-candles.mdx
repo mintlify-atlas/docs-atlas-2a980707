@@ -1,7 +1,7 @@
 ---
-title: "Building OHLCV Candlesticks from UZSE Trade Data"
+title: "Build OHLCV Candlestick Series from UZSE Trade Data"
 sidebarTitle: "Build Candles"
-description: "Aggregate raw UZSE trades into continuous OHLCV candlestick series across 11 timeframes, with automatic intraday and non-trading day gap-filling."
+description: "Aggregate raw UZSE trades into OHLCV candlestick series across 11 timeframes, with automatic gap-filling for intraday minutes and non-trading days."
 ---
 
 `build-candles.ts` is the final step in the data pipeline. It reads every trade for a given ISIN from the `trade-results` collection, aggregates them into 1-minute buckets, forward-fills every gap (intraday minutes with no activity and entire non-trading days), and then fans the filled 1-minute series out into 10 additional higher timeframes — writing all resulting candles to the `candle-items` collection.
@@ -9,17 +9,17 @@ description: "Aggregate raw UZSE trades into continuous OHLCV candlestick series
 ## Usage
 
 ```bash
-npx tsx scripts/build-candles.ts <symbol> <isin>
+npx tsx scripts/build-candles.ts [symbol] [isin]
 ```
 
 ### Parameters
 
-<ParamField path="symbol" type="string" required>
+<ParamField path="symbol" type="string" default="HMKB">
   The display ticker symbol stored on each candle document, used by the backtest-kit editor to query candles.  
   Example: `HMKB`
 </ParamField>
 
-<ParamField path="isin" type="string" required>
+<ParamField path="isin" type="string" default="UZ7011340005">
   The ISIN code used to look up trades in the `trade-results` collection.  
   Example: `UZ7011340005`
 </ParamField>

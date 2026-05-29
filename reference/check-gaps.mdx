@@ -1,7 +1,7 @@
 ---
-title: "check-gaps.ts — Trading Day Gap Detector"
+title: "check-gaps.ts — Trade History Gap Detection Script"
 sidebarTitle: "check-gaps"
-description: "CLI reference for check-gaps.ts: scans the trade-results collection and reports all calendar days with no trade activity between the first and last trading dates."
+description: "CLI reference for check-gaps.ts: scans the trade-results collection and reports missing calendar days with Russian day-of-week labels."
 ---
 
 `check-gaps.ts` is a diagnostic utility that inspects the `trade-results` MongoDB collection and identifies every calendar day between the first and last recorded trade dates that has no trade activity. Each missing day is printed with its date and Russian day-of-week abbreviation, making it easy to distinguish expected weekend gaps from unexpected weekday halts such as exchange holidays or trading suspensions.

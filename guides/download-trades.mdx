@@ -1,7 +1,7 @@
 ---
-title: "Downloading UZSE Trade Data with Playwright"
+title: "Download UZSE Trade Results with a Playwright Scraper"
 sidebarTitle: "Download Trades"
-description: "Scrape paginated trade results from uzse.uz using a headless Playwright browser and save raw HTML pages locally for import."
+description: "Scrape paginated UZSE trade results using a headless Playwright browser, save raw HTML pages to tmp/, and prepare them for the import step."
 ---
 
 `download-trades.ts` is the first step in the data pipeline. It launches a headless Chromium browser via Playwright, navigates to the UZSE trade results page at `uzse.uz/trade_results`, and iterates through every paginated result for a given symbol and date range — saving each page as a raw HTML file in the local `tmp/` directory, ready for import.

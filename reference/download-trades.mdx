@@ -1,7 +1,7 @@
 ---
-title: "download-trades.ts — UZSE Trade Page Scraper"
+title: "download-trades.ts — UZSE Trade Results Downloader"
 sidebarTitle: "download-trades"
-description: "CLI reference for download-trades.ts: scrapes uzse.uz trade result pages using Playwright and saves HTML files to tmp/. Accepts symbol, date range, and market ID."
+description: "CLI reference for download-trades.ts: scrapes uzse.uz trade result pages with Playwright and saves HTML files to tmp/ for import-trades.ts."
 ---
 
 `download-trades.ts` is the first step in the data-ingestion pipeline. It launches a headless Chromium browser via Playwright, navigates to the UZSE trade results search, auto-detects the total number of result pages, and saves every page as an HTML file in `tmp/` for the downstream `import-trades.ts` script to parse.

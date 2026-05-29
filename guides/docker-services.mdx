@@ -1,5 +1,5 @@
 ---
-title: "Docker Services: MongoDB, MinIO, and Redis"
+title: "Docker Services Setup: MongoDB, MinIO, and Redis for UZSE"
 sidebarTitle: "Docker Services"
 description: "Spin up the supporting Docker Compose services used by UZSE Backtest App — MongoDB for data storage, MinIO for object storage, and Redis for caching."
 ---
@@ -7,13 +7,13 @@ description: "Spin up the supporting Docker Compose services used by UZSE Backte
 The project ships three self-contained Docker Compose files under the `docker/` directory — one for each supporting service. MongoDB is required for the core data pipeline; MinIO and Redis are optional services used by other backtest-kit components and can be started independently whenever your workflow needs them.
 
 <CardGroup cols={3}>
-  <Card title="MongoDB" icon="database" href="#mongodb-required">
+  <Card title="MongoDB" icon="database">
     Trade and candle storage. Required for all pipeline scripts.
   </Card>
-  <Card title="MinIO" icon="box-archive" href="#minio-optional">
+  <Card title="MinIO" icon="box-archive">
     S3-compatible object storage. Used by other backtest-kit components.
   </Card>
-  <Card title="Redis" icon="bolt" href="#redis-optional">
+  <Card title="Redis" icon="bolt">
     In-memory cache and message broker. Used by other backtest-kit components.
   </Card>
 </CardGroup>
